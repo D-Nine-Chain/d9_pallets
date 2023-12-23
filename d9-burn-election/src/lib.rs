@@ -14,6 +14,7 @@ pub mod pallet {
     use frame_support::{
         pallet_prelude::{ *, ValueQuery, OptionQuery },
         inherent::Vec,
+        BoundedVec,
         weights::Weight,
         Blake2_128Concat,
     };
@@ -43,6 +44,8 @@ pub mod pallet {
         type SetMaxReferralDepthOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 
         type MaxCandidates: Get<u64>;
+
+        type MaxValidatorNodes: Get<u64>;
     }
 
     /// defines the voting power of a user
@@ -90,6 +93,16 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn number_of_candidates)]
     pub type CurrentNumberOfCandidates<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn session_list)]
+    pub type SessionCandidateList<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        SessionIndex,
+        BoundedVec<T::AccountId, ConstU32<300>>,
+        OptionQuery
+    >;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -166,16 +179,23 @@ pub mod pallet {
         }
     }
     impl<T: Config> Pallet<T> {
-        pub fn get_validators() -> Vec<T::AccountId> {
+        pub fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates = CandidateAccumulativeVotes::<T>
                 ::iter()
                 .collect::<Vec<(T::AccountId, u64)>>();
             candidates.sort_by(|a, b| b.1.cmp(&a.1));
-            let validators = candidates
+            let mut sorted_candidates = candidates
                 .into_iter()
                 .map(|(candidate, _)| candidate)
                 .collect::<Vec<T::AccountId>>();
-            validators
+
+            if (sorted_candidates.len() as u64) > T::MaxCandidates::get() {
+                sorted_candidates.truncate(T::MaxCandidates::get() as usize);
+            }
+            match sorted_candidates.len() {
+                0 => None,
+                _ => Some(sorted_candidates),
+            }
         }
 
         fn call_burn_contract(
@@ -298,16 +318,35 @@ pub mod pallet {
         }
     }
 
-    //  impl SessionManager<T::AccountId> for Pallet<T> {
-    //      fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
-    //          None
-    //      }
-    //      fn start_session(_start_index: SessionIndex) {}
-    //      fn end_session(_end_index: SessionIndex) {}
-    //      fn new_session_genesis(_now: SessionIndex) -> Option<Vec<T::AccountId>> {
-    //          None
-    //      }
-    //      fn start_session_genesis(_now: SessionIndex) {}
-    //      fn end_session_genesis(_now: SessionIndex) {}
-    //  }
+    impl<T: Config> SessionManager<T::AccountId> for Pallet<T> {
+        fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
+            let sorted_candidates_opt = Self::get_sorted_candidates();
+            if sorted_candidates_opt.is_none() {
+                return None;
+            }
+            let mut sorted_candidates = sorted_candidates_opt.unwrap();
+            let bounded_vec: BoundedVec<T::AccountId, ConstU32<300>> = BoundedVec::new();
+            SessionCandidateList::<T>::insert(new_index, bounded_vec);
+            sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
+            Some(sorted_candidates)
+        }
+        fn start_session(start_index: SessionIndex) {
+            if CurrentNumberOfCandidates::<T>::get() == T::MaxCandidates::get() {
+                let sorted_candidates_opt = Self::get_sorted_candidates();
+                if sorted_candidates_opt.is_some() {
+                    let mut sorted_candidates = sorted_candidates_opt.unwrap();
+                    if sorted_candidates.len() > (288 as usize) {
+                        let to_be_dropped = sorted_candidates.drain(288..);
+                        for candidate in to_be_dropped {
+                            CandidateAccumulativeVotes::<T>::remove(candidate);
+                        }
+                    }
+                }
+            }
+        }
+        fn end_session(end_index: SessionIndex) {}
+        fn new_session_genesis(_now: SessionIndex) -> Option<Vec<T::AccountId>> {
+            None
+        }
+    }
 }
