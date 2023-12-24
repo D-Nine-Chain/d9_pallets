@@ -20,8 +20,8 @@ pub mod pallet {
     };
     //  use sp_std::vec;
     use frame_system::pallet_prelude::*;
+
     use pallet_session::SessionManager;
-    use serde::de;
     use sp_runtime::Saturating;
 
     const STORAGE_VERSION: frame_support::traits::StorageVersion = frame_support::traits::StorageVersion::new(
@@ -116,7 +116,9 @@ pub mod pallet {
         DelegatorHasNoVotingCapacity, // doesnt even have capacity to vote (null votes)
         DelegatorHasNoAvailableVotes, // has already distributed all their votes
         DelegatorHasInsufficientVotes, // has insufficient votes to distribute
+        AttemptingToRemoveMoreVotesThanDelegated,
         CandidateDoesNotExist,
+        VoterDidntDelegateToThisCandidate,
     }
 
     #[pallet::call]
@@ -154,7 +156,19 @@ pub mod pallet {
                 burn_contract
             )?;
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
-            Self::update_voting_interests(beneficiary_voter, voting_interest_increase);
+            let _ = UsersVotingInterests::<T>::mutate(
+                beneficiary_voter.clone(),
+                |voting_interest_opt| {
+                    let voting_interest = voting_interest_opt
+                        .clone()
+                        .unwrap_or(VotingInterest::default());
+                    let new_total = voting_interest.total.saturating_add(voting_interest_increase);
+                    VotingInterest {
+                        total: new_total,
+                        delegated: voting_interest.delegated,
+                    }
+                }
+            );
             Ok(())
         }
 
@@ -172,12 +186,70 @@ pub mod pallet {
             );
             let maybe_voting_interest = UsersVotingInterests::<T>::get(delegator.clone());
             ensure!(maybe_voting_interest.is_some(), Error::<T>::DelegatorHasNoVotingCapacity);
-            let mut voting_interest = maybe_voting_interest.unwrap();
+            let voting_interest = maybe_voting_interest.unwrap();
             Self::validate_delegations(&voting_interest, &delegations)?;
-            let _ = Self::distribute_votes(&delegator, &mut voting_interest, delegations);
+            let _ = Self::delegate_votes_to_candidates(&delegator, delegations);
+            Ok(())
+        }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn remove_candidacy(origin: OriginFor<T>) -> DispatchResult {
+            let candidate: T::AccountId = ensure_signed(origin)?;
+            let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
+            let mut prefix_iterator = CandidateSupporters::<T>::iter_prefix((candidate.clone(),));
+            while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
+                support_to_remove.push((supporter, delegated_votes));
+            }
+            for support in support_to_remove {
+                Self::remove_votes_from_candidate(&support.0, &candidate, support.1);
+            }
+            Ok(())
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn try_remove_votes_from_candidate(
+            origin: OriginFor<T>,
+            candidate: T::AccountId,
+            votes: u64
+        ) -> DispatchResult {
+            let voter = ensure_signed(origin)?;
+            if !Self::is_valid_candidate(&candidate) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+            let delegated_votes = VoteDelegations::<T>::get((voter.clone(), candidate.clone()));
+            if delegated_votes == 0 {
+                return Err(Error::<T>::VoterDidntDelegateToThisCandidate.into());
+            }
+            if votes > delegated_votes {
+                return Err(Error::<T>::AttemptingToRemoveMoreVotesThanDelegated.into());
+            }
+
+            Self::remove_votes_from_candidate(&voter, &candidate, votes);
+            Ok(())
+        }
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn redistribute_votes(
+            origin: OriginFor<T>,
+            from: T::AccountId,
+            to: T::AccountId
+        ) -> DispatchResult {
+            let voter = ensure_signed(origin)?;
+            if !Self::is_valid_candidate(&to) || !Self::is_valid_candidate(&from) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+            let delegated_votes = VoteDelegations::<T>::get((voter.clone(), from.clone()));
+            if delegated_votes == 0 {
+                return Err(Error::<T>::VoterDidntDelegateToThisCandidate.into());
+            }
+            Self::remove_votes_from_candidate(&voter, &from, delegated_votes);
+            Self::add_votes_to_candidate(&voter, &to, delegated_votes);
             Ok(())
         }
     }
+
     impl<T: Config> Pallet<T> {
         pub fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates = CandidateAccumulativeVotes::<T>
@@ -245,15 +317,6 @@ pub mod pallet {
             votes_bought.try_into().unwrap_or(0)
         }
 
-        fn update_voting_interests(voter: T::AccountId, votes_bought: u64) {
-            let mut voting_interest = UsersVotingInterests::<T>
-                ::get(voter.clone())
-                .unwrap_or(VotingInterest::default());
-
-            voting_interest.total = voting_interest.total.saturating_add(votes_bought);
-            UsersVotingInterests::<T>::insert(voter, voting_interest);
-        }
-
         fn validate_delegations(
             voting_interest: &VotingInterest,
             delegations: &Vec<ValidatorDelegations<T>>
@@ -277,44 +340,79 @@ pub mod pallet {
             CandidateAccumulativeVotes::<T>::contains_key(candidate.clone())
         }
 
-        fn distribute_votes(
+        fn delegate_votes_to_candidates(
             delegator: &T::AccountId,
-            voting_interest: &mut VotingInterest,
             delegations: Vec<ValidatorDelegations<T>>
         ) -> Result<(), DispatchError> {
-            let mut votes_distributed = 0;
             for delegation in delegations.iter() {
                 let candidate = delegation.candidate.clone();
                 let votes = delegation.votes;
-                let candidate_votes_maybe = CandidateAccumulativeVotes::<T>::get(candidate.clone());
-                ensure!(candidate_votes_maybe.is_some(), Error::<T>::CandidateDoesNotExist);
-
-                let mut candidate_votes = candidate_votes_maybe.unwrap();
-                candidate_votes = candidate_votes.saturating_add(votes);
-                CandidateAccumulativeVotes::<T>::insert(candidate.clone(), candidate_votes);
-
-                let mut candidate_supporters = CandidateSupporters::<T>::get((
-                    candidate.clone(),
-                    delegator.clone(),
-                ));
-                candidate_supporters = candidate_supporters.saturating_add(votes);
-                CandidateSupporters::<T>::insert(
-                    (candidate.clone(), delegator.clone()),
-                    candidate_supporters
-                );
-
-                let mut vote_delegations = VoteDelegations::<T>::get((
-                    delegator.clone(),
-                    candidate.clone(),
-                ));
-
-                vote_delegations = vote_delegations.saturating_add(votes);
-                VoteDelegations::<T>::insert((delegator.clone(), candidate), vote_delegations);
-                votes_distributed = votes_distributed.saturating_add(votes);
+                Self::add_votes_to_candidate(delegator, &candidate, votes);
             }
-            voting_interest.delegated = voting_interest.delegated.saturating_add(votes_distributed);
-            UsersVotingInterests::<T>::insert(delegator, voting_interest);
             Ok(())
+        }
+
+        fn add_votes_to_candidate(delegator: &T::AccountId, candidate: &T::AccountId, votes: u64) {
+            let _ = CandidateAccumulativeVotes::<T>::mutate(
+                candidate.clone(),
+                |candidate_votes_opt| {
+                    let candidate_votes = candidate_votes_opt.unwrap();
+                    candidate_votes.saturating_add(votes)
+                }
+            );
+
+            let _ = CandidateSupporters::<T>::mutate(
+                (candidate.clone(), delegator.clone()),
+                |candidate_supporters| { candidate_supporters.saturating_add(votes) }
+            );
+
+            let _ = VoteDelegations::<T>::mutate(
+                (delegator.clone(), candidate.clone()),
+                |vote_delegations| { vote_delegations.saturating_add(votes) }
+            );
+
+            let _ = UsersVotingInterests::<T>::mutate(delegator.clone(), |voting_interest| {
+                let mut voting_interest = voting_interest.clone().unwrap();
+                voting_interest.delegated = voting_interest.delegated.saturating_add(votes);
+                voting_interest
+            });
+        }
+
+        fn remove_votes_from_candidate(
+            delegator: &T::AccountId,
+            candidate: &T::AccountId,
+            votes: u64
+        ) {
+            let _ = CandidateAccumulativeVotes::<T>::mutate(
+                candidate.clone(),
+                |candidate_votes_opt| {
+                    let candidate_votes = candidate_votes_opt.unwrap();
+                    candidate_votes.saturating_sub(votes)
+                }
+            );
+            let delegated_votes = CandidateSupporters::<T>::get((
+                candidate.clone(),
+                delegator.clone(),
+            ));
+            if delegated_votes == votes {
+                let _ = CandidateSupporters::<T>::remove((candidate.clone(), delegator.clone()));
+                let _ = VoteDelegations::<T>::remove((delegator.clone(), candidate.clone()));
+            } else {
+                let _ = CandidateSupporters::<T>::mutate(
+                    (candidate.clone(), delegator.clone()),
+                    |candidate_supporters| { candidate_supporters.saturating_sub(votes) }
+                );
+                let _ = VoteDelegations::<T>::mutate(
+                    (delegator.clone(), candidate.clone()),
+                    |vote_delegations| { vote_delegations.saturating_sub(votes) }
+                );
+            }
+
+            let _ = UsersVotingInterests::<T>::mutate(delegator.clone(), |voting_interest| {
+                let mut voting_interest = voting_interest.clone().unwrap();
+                voting_interest.delegated = voting_interest.delegated.saturating_sub(votes);
+                voting_interest
+            });
         }
     }
 
@@ -330,7 +428,7 @@ pub mod pallet {
             sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
             Some(sorted_candidates)
         }
-        fn start_session(start_index: SessionIndex) {
+        fn start_session(_start_index: SessionIndex) {
             if CurrentNumberOfCandidates::<T>::get() == T::MaxCandidates::get() {
                 let sorted_candidates_opt = Self::get_sorted_candidates();
                 if sorted_candidates_opt.is_some() {
@@ -344,9 +442,6 @@ pub mod pallet {
                 }
             }
         }
-        fn end_session(end_index: SessionIndex) {}
-        fn new_session_genesis(_now: SessionIndex) -> Option<Vec<T::AccountId>> {
-            None
-        }
+        fn end_session(_end_index: SessionIndex) {}
     }
 }
