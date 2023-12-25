@@ -106,7 +106,11 @@ pub mod pallet {
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {}
+    pub enum Event<T: Config> {
+        CandidacySubmitted(T::AccountId),
+        VotesDelegatedBy(T::AccountId),
+        CandidacyRemoved(T::AccountId),
+    }
 
     #[pallet::error]
     pub enum Error<T> {
@@ -124,9 +128,9 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
-        pub fn submit_candidacy(origin: OriginFor<T>, validator: T::AccountId) -> DispatchResult {
-            ensure_signed(origin)?;
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+        pub fn submit_candidacy(origin: OriginFor<T>) -> DispatchResult {
+            let validator = ensure_signed(origin)?;
             let current_candidate_count = CurrentNumberOfCandidates::<T>::get();
             let max_candidates = T::MaxCandidates::get();
             ensure!(
@@ -135,6 +139,7 @@ pub mod pallet {
             );
             CandidateAccumulativeVotes::<T>::insert(validator.clone(), 0);
             CurrentNumberOfCandidates::<T>::put(current_candidate_count + 1);
+            Self::deposit_event(Event::CandidacySubmitted(validator));
             Ok(())
         }
 
@@ -189,6 +194,7 @@ pub mod pallet {
             let voting_interest = maybe_voting_interest.unwrap();
             Self::validate_delegations(&voting_interest, &delegations)?;
             let _ = Self::delegate_votes_to_candidates(&delegator, delegations);
+            Self::deposit_event(Event::VotesDelegatedBy(delegator));
             Ok(())
         }
 
@@ -204,6 +210,7 @@ pub mod pallet {
             for support in support_to_remove {
                 Self::remove_votes_from_candidate(&support.0, &candidate, support.1);
             }
+            Self::deposit_event(Event::CandidacyRemoved(candidate));
             Ok(())
         }
 
@@ -423,9 +430,12 @@ pub mod pallet {
                 return None;
             }
             let mut sorted_candidates = sorted_candidates_opt.unwrap();
-            let bounded_vec: BoundedVec<T::AccountId, ConstU32<300>> = BoundedVec::new();
-            SessionCandidateList::<T>::insert(new_index, bounded_vec);
             sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
+            let bounded_vec: BoundedVec<T::AccountId, ConstU32<300>> = BoundedVec::try_from(
+                sorted_candidates.clone()
+            ).unwrap();
+
+            SessionCandidateList::<T>::insert(new_index, bounded_vec);
             Some(sorted_candidates)
         }
         fn start_session(_start_index: SessionIndex) {
