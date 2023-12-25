@@ -39,10 +39,6 @@ pub mod pallet {
 
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        type MaxReferralDepth: Get<u32>;
-
-        type SetMaxReferralDepthOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
-
         type MaxCandidates: Get<u64>;
 
         type MaxValidatorNodes: Get<u64>;
