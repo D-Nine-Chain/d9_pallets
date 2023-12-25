@@ -3,6 +3,7 @@ use frame_support::RuntimeDebugNoBound;
 use codec::MaxEncodedLen;
 use crate::pallet::Config;
 use crate::BalanceOf;
+use sp_runtime::traits::Convert;
 #[derive(
     PartialEqNoBound,
     EqNoBound,
@@ -71,4 +72,11 @@ pub struct Candidate<T: Config> {
     account_id: T::AccountId,
     #[codec(compact)]
     total_votes: BalanceOf<T>,
+}
+
+pub struct ConvertAccountId<T: Config>(PhantomData<T>);
+impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId<T> {
+    fn convert(account_id: T::AccountId) -> Option<T::AccountId> {
+        account_id.into()
+    }
 }
