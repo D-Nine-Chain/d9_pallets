@@ -121,6 +121,28 @@ pub mod pallet {
         VoterDidntDelegateToThisCandidate,
     }
 
+    #[pallet::genesis_config]
+    pub struct GenesisConfig<T: Config> {
+        pub initial_candidates: Vec<T::AccountId>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+        fn build(&self) {
+            for candidate in self.initial_candidates.iter() {
+                CandidateAccumulativeVotes::<T>::insert(candidate.clone(), 0);
+                CurrentNumberOfCandidates::<T>::put(CurrentNumberOfCandidates::<T>::get() + 1);
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl<T: Config> Default for GenesisConfig<T> {
+        fn default() -> Self {
+            Self { initial_candidates: Default::default() }
+        }
+    }
+
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
