@@ -2,6 +2,7 @@ use frame_support::pallet_prelude::*;
 use frame_support::RuntimeDebugNoBound;
 use codec::MaxEncodedLen;
 use crate::pallet::Config;
+use crate::pallet::Pallet;
 use crate::BalanceOf;
 use sp_runtime::traits::Convert;
 #[derive(
@@ -78,5 +79,32 @@ pub struct ConvertAccountId<T: Config>(PhantomData<T>);
 impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId<T> {
     fn convert(account_id: T::AccountId) -> Option<T::AccountId> {
         account_id.into()
+    }
+}
+
+#[derive(
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Encode,
+    Decode,
+    RuntimeDebug,
+    TypeInfo,
+    MaxEncodedLen
+)]
+#[scale_info(skip_type_params(T))]
+pub struct ValidatorStats<T: Config> {
+    pub account_id: T::AccountId,
+    pub total_votes: u64,
+    pub self_votes: u64,
+    pub delegated_votes: u64,
+}
+
+pub struct ValidatorStatsOf<T: Config>(PhantomData<T>);
+impl<T: Config> Convert<T::AccountId, Option<ValidatorStats<T>>> for ValidatorStatsOf<T> {
+    fn convert(account_id: T::AccountId) -> Option<ValidatorStats<T>> {
+        <Pallet<T>>::validator_stats(account_id)
     }
 }

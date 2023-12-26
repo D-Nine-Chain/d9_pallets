@@ -39,9 +39,9 @@ pub mod pallet {
 
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        type MaxCandidates: Get<u64>;
+        type MaxCandidates: Get<u32>;
 
-        type MaxValidatorNodes: Get<u64>;
+        type MaxValidatorNodes: Get<u32>;
     }
 
     /// defines the voting power of a user
@@ -88,7 +88,7 @@ pub mod pallet {
     >;
     #[pallet::storage]
     #[pallet::getter(fn number_of_candidates)]
-    pub type CurrentNumberOfCandidates<T: Config> = StorageValue<_, u64, ValueQuery>;
+    pub type CurrentNumberOfCandidates<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn session_list)]
@@ -97,6 +97,16 @@ pub mod pallet {
         Blake2_128Concat,
         SessionIndex,
         BoundedVec<T::AccountId, ConstU32<300>>,
+        OptionQuery
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn validator_stats)]
+    pub type CurrentValidators<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        ValidatorStats<T>,
         OptionQuery
     >;
 
@@ -119,6 +129,8 @@ pub mod pallet {
         AttemptingToRemoveMoreVotesThanDelegated,
         CandidateDoesNotExist,
         VoterDidntDelegateToThisCandidate,
+        NotActiveValidator,
+        AtMaximumNumberOfCandidates,
     }
 
     #[pallet::genesis_config]
@@ -153,7 +165,7 @@ pub mod pallet {
             let max_candidates = T::MaxCandidates::get();
             ensure!(
                 current_candidate_count + 1 <= max_candidates,
-                "max number of candidates reached"
+                Error::<T>::AtMaximumNumberOfCandidates
             );
             CandidateAccumulativeVotes::<T>::insert(validator.clone(), 0);
             CurrentNumberOfCandidates::<T>::put(current_candidate_count + 1);
@@ -204,7 +216,7 @@ pub mod pallet {
             let delegator = ensure_signed(origin)?;
             ensure!(delegations.len() > 0, Error::<T>::EmptyDelegationList);
             ensure!(
-                (delegations.len() as u64) <= T::MaxCandidates::get(),
+                (delegations.len() as u32) <= T::MaxCandidates::get(),
                 Error::<T>::DelegationListTooLarge
             );
             let maybe_voting_interest = UsersVotingInterests::<T>::get(delegator.clone());
@@ -286,7 +298,7 @@ pub mod pallet {
                 .map(|(candidate, _)| candidate)
                 .collect::<Vec<T::AccountId>>();
 
-            if (sorted_candidates.len() as u64) > T::MaxCandidates::get() {
+            if (sorted_candidates.len() as u32) > T::MaxCandidates::get() {
                 sorted_candidates.truncate(T::MaxCandidates::get() as usize);
             }
             match sorted_candidates.len() {
@@ -448,28 +460,57 @@ pub mod pallet {
                 return None;
             }
             let mut sorted_candidates = sorted_candidates_opt.unwrap();
-            sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
-            let bounded_vec: BoundedVec<T::AccountId, ConstU32<300>> = BoundedVec::try_from(
+
+            let bounded_candidates: BoundedVec<T::AccountId, ConstU32<300>> = BoundedVec::try_from(
                 sorted_candidates.clone()
             ).unwrap();
+            SessionCandidateList::<T>::insert(new_index, bounded_candidates);
+            sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
 
-            SessionCandidateList::<T>::insert(new_index, bounded_vec);
             Some(sorted_candidates)
         }
         fn start_session(_start_index: SessionIndex) {
+            let sorted_candidates_opt = Self::get_sorted_candidates();
+            if sorted_candidates_opt.is_none() {
+                return;
+            }
+            let mut sorted_candidates = sorted_candidates_opt.unwrap();
+
+            // if at max candidates, remove the bottom 12
             if CurrentNumberOfCandidates::<T>::get() == T::MaxCandidates::get() {
-                let sorted_candidates_opt = Self::get_sorted_candidates();
-                if sorted_candidates_opt.is_some() {
-                    let mut sorted_candidates = sorted_candidates_opt.unwrap();
-                    if sorted_candidates.len() > (288 as usize) {
-                        let to_be_dropped = sorted_candidates.drain(288..);
-                        for candidate in to_be_dropped {
-                            CandidateAccumulativeVotes::<T>::remove(candidate);
-                        }
+                if sorted_candidates.len() > (288 as usize) {
+                    let to_be_dropped: Vec<T::AccountId> = sorted_candidates
+                        .clone()
+                        .drain(288..)
+                        .collect();
+                    for candidate in to_be_dropped {
+                        CandidateAccumulativeVotes::<T>::remove(candidate);
                     }
                 }
             }
+
+            // store validator stats
+            sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
+            for validator in sorted_candidates.iter() {
+                let total_votes_opt = CandidateAccumulativeVotes::<T>::get(validator.clone());
+                if total_votes_opt.is_none() {
+                    continue;
+                }
+                let total_votes = total_votes_opt.unwrap();
+                let self_votes = total_votes.saturating_sub(
+                    CandidateSupporters::<T>::get((validator.clone(), validator.clone()))
+                );
+
+                let _ = CurrentValidators::<T>::insert(validator.clone(), ValidatorStats {
+                    account_id: validator.clone(),
+                    total_votes,
+                    self_votes,
+                    delegated_votes: total_votes.saturating_sub(self_votes),
+                });
+            }
         }
-        fn end_session(_end_index: SessionIndex) {}
+        fn end_session(_end_index: SessionIndex) {
+            let _ = CurrentValidators::<T>::drain();
+        }
     }
 }
