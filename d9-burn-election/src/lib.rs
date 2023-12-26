@@ -142,7 +142,7 @@ pub mod pallet {
     impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
         fn build(&self) {
             for candidate in self.initial_candidates.iter() {
-                CandidateAccumulativeVotes::<T>::insert(candidate.clone(), 0);
+                CandidateAccumulativeVotes::<T>::insert(candidate.clone(), 1000);
                 CurrentNumberOfCandidates::<T>::put(CurrentNumberOfCandidates::<T>::get() + 1);
             }
         }
@@ -298,9 +298,7 @@ pub mod pallet {
                 .map(|(candidate, _)| candidate)
                 .collect::<Vec<T::AccountId>>();
 
-            if (sorted_candidates.len() as u32) > T::MaxCandidates::get() {
-                sorted_candidates.truncate(T::MaxCandidates::get() as usize);
-            }
+            sorted_candidates.truncate(T::MaxCandidates::get() as usize);
             match sorted_candidates.len() {
                 0 => None,
                 _ => Some(sorted_candidates),
@@ -512,5 +510,17 @@ pub mod pallet {
         fn end_session(_end_index: SessionIndex) {
             let _ = CurrentValidators::<T>::drain();
         }
+        //   fn new_session_genesis(
+        //       new_index: SessionIndex
+        //   ) -> Option<Vec<pallet_session::ValidatorId>> {
+        //       let genesis_validators = CandidateAccumulativeVotes::<T>
+        //           ::iter()
+        //           .map(|(candidate, _)| candidate)
+        //           .collect::<Vec<T::AccountId>>();
+        //       if genesis_validators.len() == 0 {
+        //           return None;
+        //       }
+        //       Some(genesis_validators)
+        //   }
     }
 }
