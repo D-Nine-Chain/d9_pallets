@@ -2,6 +2,7 @@
 use sp_std::prelude::*;
 use sp_staking::SessionIndex;
 mod structs;
+mod api;
 pub use structs::*;
 pub use pallet::*;
 use frame_support::traits::Currency;
