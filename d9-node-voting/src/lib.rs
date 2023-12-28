@@ -344,15 +344,12 @@ pub mod pallet {
             if amount < burn_minimum {
                 return Err(Error::<T>::BurnAmountMustBeGreaterThan100.into());
             }
-            let decode_result = hex::decode("0xb1efc17b");
-            if decode_result.is_err() {
-                return Err(Error::<T>::HexDecodeError.into());
-            }
-            let mut encoded_selector: Vec<u8> = decode_result.unwrap(); // selector for burn function on burn manager ( future name will be main pool)
+            //0xb1efc17b
+            let mut selector: Vec<u8> = [0xb1, 0xef, 0xc1, 0x7b].into();
             let mut encoded_voter: Vec<u8> = voter.encode();
             let mut encoded_burn_contract: Vec<u8> = burn_contract.encode();
             let mut data_for_contract_call = Vec::new();
-            data_for_contract_call.append(&mut encoded_selector);
+            data_for_contract_call.append(&mut selector);
             data_for_contract_call.append(&mut encoded_voter);
             data_for_contract_call.append(&mut encoded_burn_contract);
             let weight: Weight = Weight::default();
