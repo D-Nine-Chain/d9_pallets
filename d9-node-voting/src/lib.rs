@@ -192,7 +192,7 @@ pub mod pallet {
             //     burn_contract
             // )?;
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
-            let _ = UsersVotingInterests::<T>::mutate(
+            let voting_interest = UsersVotingInterests::<T>::mutate(
                 beneficiary_voter.clone(),
                 |voting_interest_opt| {
                     let voting_interest = voting_interest_opt
@@ -205,6 +205,7 @@ pub mod pallet {
                     }
                 }
             );
+            UsersVotingInterests::<T>::insert(beneficiary_voter, voting_interest);
             Ok(())
         }
 
