@@ -2,7 +2,6 @@
 use sp_std::prelude::*;
 use sp_staking::SessionIndex;
 mod structs;
-mod api;
 pub use structs::*;
 pub use pallet::*;
 use frame_support::traits::Currency;
@@ -170,6 +169,7 @@ pub mod pallet {
             );
             CandidateAccumulativeVotes::<T>::insert(validator.clone(), 0);
             CurrentNumberOfCandidates::<T>::put(current_candidate_count + 1);
+
             Self::deposit_event(Event::CandidacySubmitted(validator));
             Ok(())
         }
@@ -184,13 +184,13 @@ pub mod pallet {
             burn_contract: T::AccountId
         ) -> DispatchResult {
             let token_burner = ensure_signed(origin)?;
-            Self::call_burn_contract(
-                token_burner,
-                beneficiary_voter.clone(),
-                main_pool,
-                amount_to_burn,
-                burn_contract
-            )?;
+            // Self::call_burn_contract(
+            //     token_burner,
+            //     beneficiary_voter.clone(),
+            //     main_pool,
+            //     amount_to_burn,
+            //     burn_contract
+            // )?;
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
             let _ = UsersVotingInterests::<T>::mutate(
                 beneficiary_voter.clone(),
@@ -511,17 +511,5 @@ pub mod pallet {
         fn end_session(_end_index: SessionIndex) {
             let _ = CurrentValidators::<T>::drain();
         }
-        //   fn new_session_genesis(
-        //       new_index: SessionIndex
-        //   ) -> Option<Vec<pallet_session::ValidatorId>> {
-        //       let genesis_validators = CandidateAccumulativeVotes::<T>
-        //           ::iter()
-        //           .map(|(candidate, _)| candidate)
-        //           .collect::<Vec<T::AccountId>>();
-        //       if genesis_validators.len() == 0 {
-        //           return None;
-        //       }
-        //       Some(genesis_validators)
-        //   }
     }
 }

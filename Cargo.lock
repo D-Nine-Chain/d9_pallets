@@ -1734,7 +1734,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-d9-burn-election"
+name = "pallet-d9-node-voting"
 version = "0.1.0"
 dependencies = [
  "frame-benchmarking",
