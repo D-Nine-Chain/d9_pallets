@@ -176,7 +176,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(10, 10))]
         pub fn add_voting_interest(
             origin: OriginFor<T>,
             beneficiary_voter: T::AccountId,
@@ -185,13 +185,13 @@ pub mod pallet {
             burn_contract: T::AccountId
         ) -> DispatchResult {
             let token_burner = ensure_signed(origin)?;
-            // Self::call_burn_contract(
-            //     token_burner,
-            //     beneficiary_voter.clone(),
-            //     main_pool,
-            //     amount_to_burn,
-            //     burn_contract
-            // )?;
+            Self::call_burn_contract(
+                token_burner,
+                beneficiary_voter.clone(),
+                main_pool,
+                amount_to_burn,
+                burn_contract
+            )?;
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
             let voting_interest = UsersVotingInterests::<T>::mutate(
                 beneficiary_voter.clone(),
@@ -293,25 +293,6 @@ pub mod pallet {
             Self::add_votes_to_candidate(&voter, &to, delegated_votes);
             Ok(())
         }
-        #[pallet::call_index(6)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
-        pub fn call_contract_test(
-            origin: OriginFor<T>,
-            token_burner: T::AccountId,
-            beneficiary_voter: T::AccountId,
-            main_pool: T::AccountId,
-            amount: BalanceOf<T>,
-            burn_contract: T::AccountId
-        ) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
-            Self::call_burn_contract(
-                token_burner,
-                beneficiary_voter.clone(),
-                main_pool,
-                amount,
-                burn_contract
-            )
-        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -353,8 +334,8 @@ pub mod pallet {
             data_for_contract_call.append(&mut encoded_voter);
             data_for_contract_call.append(&mut encoded_burn_contract);
             let weight: Weight = Weight::default();
-            weight.set_ref_time(500_000_000_000);
-            weight.set_proof_size(800_000);
+            weight.set_ref_time(7_000_000_000);
+            weight.set_proof_size(100_000);
 
             let contract_call_result = pallet_contracts::Pallet::<T>::bare_call(
                 token_burner,
