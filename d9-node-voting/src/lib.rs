@@ -286,6 +286,25 @@ pub mod pallet {
             Self::add_votes_to_candidate(&voter, &to, delegated_votes);
             Ok(())
         }
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn call_contract_test(
+            origin: OriginFor<T>,
+            token_burner: T::AccountId,
+            beneficiary_voter: T::AccountId,
+            main_pool: T::AccountId,
+            amount: BalanceOf<T>,
+            burn_contract: T::AccountId
+        ) -> DispatchResult {
+            let _ = ensure_signed(origin)?;
+            Self::call_burn_contract(
+                token_burner,
+                beneficiary_voter.clone(),
+                main_pool,
+                amount,
+                burn_contract
+            )
+        }
     }
 
     impl<T: Config> Pallet<T> {
