@@ -176,7 +176,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(12_000_000_000)]
+        #[pallet::weight(99_000_000_000)]
         pub fn add_voting_interest(
             origin: OriginFor<T>,
             beneficiary_voter: T::AccountId,
