@@ -131,6 +131,7 @@ pub mod pallet {
         VoterDidntDelegateToThisCandidate,
         NotActiveValidator,
         AtMaximumNumberOfCandidates,
+        BurnAmountMustBeGreaterThan100,
     }
 
     #[pallet::genesis_config]
@@ -163,10 +164,10 @@ pub mod pallet {
             let validator = ensure_signed(origin)?;
             let current_candidate_count = CurrentNumberOfCandidates::<T>::get();
             let max_candidates = T::MaxCandidates::get();
-            ensure!(
-                current_candidate_count + 1 <= max_candidates,
-                Error::<T>::AtMaximumNumberOfCandidates
-            );
+            if current_candidate_count + 1 > max_candidates {
+                return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
+            }
+
             CandidateAccumulativeVotes::<T>::insert(validator.clone(), 0);
             CurrentNumberOfCandidates::<T>::put(current_candidate_count + 1);
 
@@ -216,13 +217,18 @@ pub mod pallet {
             delegations: Vec<ValidatorDelegations<T>>
         ) -> DispatchResult {
             let delegator = ensure_signed(origin)?;
-            ensure!(delegations.len() > 0, Error::<T>::EmptyDelegationList);
-            ensure!(
-                (delegations.len() as u32) <= T::MaxCandidates::get(),
-                Error::<T>::DelegationListTooLarge
-            );
+            if delegations.len() == 0 {
+                return Err(Error::<T>::EmptyDelegationList.into());
+            }
+
+            if (delegations.len() as u32) > T::MaxCandidates::get() {
+                return Err(Error::<T>::DelegationListTooLarge.into());
+            }
+
             let maybe_voting_interest = UsersVotingInterests::<T>::get(delegator.clone());
-            ensure!(maybe_voting_interest.is_some(), Error::<T>::DelegatorHasNoVotingCapacity);
+            if maybe_voting_interest.is_none() {
+                return Err(Error::<T>::DelegatorHasNoVotingCapacity.into());
+            }
             let voting_interest = maybe_voting_interest.unwrap();
             Self::validate_delegations(&voting_interest, &delegations)?;
             let _ = Self::delegate_votes_to_candidates(&delegator, delegations);
@@ -335,7 +341,9 @@ pub mod pallet {
         ) -> Result<(), DispatchError> {
             let decimals: BalanceOf<T> = T::CurrencySubUnits::get();
             let burn_minimum: BalanceOf<T> = <BalanceOf<T>>::from(100u32).saturating_mul(decimals);
-            ensure!(amount > burn_minimum, "amount must be greater than 100");
+            if amount < burn_minimum {
+                return Err(Error::<T>::BurnAmountMustBeGreaterThan100.into());
+            }
             let decode_result = hex::decode("0xb1efc17b");
             if decode_result.is_err() {
                 return Err(Error::<T>::HexDecodeError.into());
@@ -378,7 +386,9 @@ pub mod pallet {
             delegations: &Vec<ValidatorDelegations<T>>
         ) -> Result<(), DispatchError> {
             let available_votes = voting_interest.total.saturating_sub(voting_interest.delegated);
-            ensure!(available_votes > 0, Error::<T>::DelegatorHasNoAvailableVotes);
+            if available_votes == 0 {
+                return Err(Error::<T>::DelegatorHasNoAvailableVotes.into());
+            }
             let mut votes_to_distribute = 0;
             for delegation in delegations.iter() {
                 if !Self::is_valid_candidate(&delegation.candidate) {
@@ -409,29 +419,39 @@ pub mod pallet {
         }
 
         fn add_votes_to_candidate(delegator: &T::AccountId, candidate: &T::AccountId, votes: u64) {
-            let _ = CandidateAccumulativeVotes::<T>::mutate(
+            let added_votes = CandidateAccumulativeVotes::<T>::mutate(
                 candidate.clone(),
                 |candidate_votes_opt| {
                     let candidate_votes = candidate_votes_opt.unwrap();
                     candidate_votes.saturating_add(votes)
                 }
             );
+            CandidateAccumulativeVotes::<T>::insert(candidate.clone(), added_votes);
 
-            let _ = CandidateSupporters::<T>::mutate(
+            let candidate_support = CandidateSupporters::<T>::mutate(
                 (candidate.clone(), delegator.clone()),
                 |candidate_supporters| { candidate_supporters.saturating_add(votes) }
             );
+            CandidateSupporters::<T>::insert(
+                (candidate.clone(), delegator.clone()),
+                candidate_support
+            );
 
-            let _ = VoteDelegations::<T>::mutate(
+            let vote_delegation = VoteDelegations::<T>::mutate(
                 (delegator.clone(), candidate.clone()),
                 |vote_delegations| { vote_delegations.saturating_add(votes) }
             );
+            VoteDelegations::<T>::insert((delegator.clone(), candidate.clone()), vote_delegation);
 
-            let _ = UsersVotingInterests::<T>::mutate(delegator.clone(), |voting_interest| {
-                let mut voting_interest = voting_interest.clone().unwrap();
-                voting_interest.delegated = voting_interest.delegated.saturating_add(votes);
-                voting_interest
-            });
+            let user_voting_interests = UsersVotingInterests::<T>::mutate(
+                delegator.clone(),
+                |voting_interest| {
+                    let mut voting_interest = voting_interest.clone().unwrap();
+                    voting_interest.delegated = voting_interest.delegated.saturating_add(votes);
+                    voting_interest
+                }
+            );
+            UsersVotingInterests::<T>::insert(delegator.clone(), user_voting_interests);
         }
 
         fn remove_votes_from_candidate(
