@@ -437,13 +437,15 @@ pub mod pallet {
             candidate: &T::AccountId,
             votes: u64
         ) {
-            let _ = CandidateAccumulativeVotes::<T>::mutate(
+            let candidate_votes = CandidateAccumulativeVotes::<T>::mutate(
                 candidate.clone(),
                 |candidate_votes_opt| {
                     let candidate_votes = candidate_votes_opt.unwrap();
                     candidate_votes.saturating_sub(votes)
                 }
             );
+            CandidateAccumulativeVotes::<T>::insert(candidate.clone(), candidate_votes);
+
             let delegated_votes = CandidateSupporters::<T>::get((
                 candidate.clone(),
                 delegator.clone(),
@@ -462,11 +464,15 @@ pub mod pallet {
                 );
             }
 
-            let _ = UsersVotingInterests::<T>::mutate(delegator.clone(), |voting_interest| {
-                let mut voting_interest = voting_interest.clone().unwrap();
-                voting_interest.delegated = voting_interest.delegated.saturating_sub(votes);
-                voting_interest
-            });
+            let user_voting_interests = UsersVotingInterests::<T>::mutate(
+                delegator.clone(),
+                |voting_interest| {
+                    let mut voting_interest = voting_interest.clone().unwrap();
+                    voting_interest.delegated = voting_interest.delegated.saturating_sub(votes);
+                    voting_interest
+                }
+            );
+            UsersVotingInterests::<T>::insert(delegator.clone(), user_voting_interests);
         }
     }
 
