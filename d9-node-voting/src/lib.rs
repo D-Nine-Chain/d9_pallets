@@ -250,6 +250,8 @@ pub mod pallet {
             for support in support_to_remove {
                 Self::remove_votes_from_candidate(&support.0, &candidate, support.1);
             }
+            let current_candidate_count = CurrentNumberOfCandidates::<T>::get();
+            CurrentNumberOfCandidates::<T>::put(current_candidate_count - 1);
             Self::deposit_event(Event::CandidacyRemoved(candidate));
             Ok(())
         }
@@ -454,13 +456,21 @@ pub mod pallet {
                 let _ = CandidateSupporters::<T>::remove((candidate.clone(), delegator.clone()));
                 let _ = VoteDelegations::<T>::remove((delegator.clone(), candidate.clone()));
             } else {
-                let _ = CandidateSupporters::<T>::mutate(
+                let candidate_support = CandidateSupporters::<T>::mutate(
                     (candidate.clone(), delegator.clone()),
                     |candidate_supporters| { candidate_supporters.saturating_sub(votes) }
                 );
-                let _ = VoteDelegations::<T>::mutate(
+                CandidateSupporters::<T>::insert(
+                    (candidate.clone(), delegator.clone()),
+                    candidate_support
+                );
+                let vote_delegations = VoteDelegations::<T>::mutate(
                     (delegator.clone(), candidate.clone()),
                     |vote_delegations| { vote_delegations.saturating_sub(votes) }
+                );
+                VoteDelegations::<T>::insert(
+                    (delegator.clone(), candidate.clone()),
+                    vote_delegations
                 );
             }
 
