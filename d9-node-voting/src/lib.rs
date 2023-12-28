@@ -353,7 +353,7 @@ pub mod pallet {
             data_for_contract_call.append(&mut encoded_voter);
             data_for_contract_call.append(&mut encoded_burn_contract);
             let weight: Weight = Weight::default();
-            weight.set_ref_time(50_000_000_000);
+            weight.set_ref_time(500_000_000_000);
             weight.set_proof_size(800_000);
 
             let contract_call_result = pallet_contracts::Pallet::<T>::bare_call(
