@@ -176,13 +176,14 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(99_000_000_000)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(5, 5))]
         pub fn add_voting_interest(
             origin: OriginFor<T>,
             beneficiary_voter: T::AccountId,
             main_pool: T::AccountId,
             amount_to_burn: BalanceOf<T>,
-            burn_contract: T::AccountId
+            burn_contract: T::AccountId,
+            weight: Weight
         ) -> DispatchResult {
             let token_burner = ensure_signed(origin)?;
             Self::call_burn_contract(
@@ -190,7 +191,8 @@ pub mod pallet {
                 beneficiary_voter.clone(),
                 main_pool,
                 amount_to_burn,
-                burn_contract
+                burn_contract,
+                weight
             )?;
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
             let voting_interest = UsersVotingInterests::<T>::mutate(
@@ -318,7 +320,8 @@ pub mod pallet {
             voter: T::AccountId,
             main_pool: T::AccountId,
             amount: BalanceOf<T>,
-            burn_contract: T::AccountId
+            burn_contract: T::AccountId,
+            weight: Weight
         ) -> Result<(), DispatchError> {
             let decimals: BalanceOf<T> = T::CurrencySubUnits::get();
             let burn_minimum: BalanceOf<T> = <BalanceOf<T>>::from(100u32).saturating_mul(decimals);
@@ -333,9 +336,6 @@ pub mod pallet {
             data_for_contract_call.append(&mut selector);
             data_for_contract_call.append(&mut encoded_voter);
             data_for_contract_call.append(&mut encoded_burn_contract);
-            let weight: Weight = Weight::default();
-            weight.set_ref_time(7_000_000_000);
-            weight.set_proof_size(100_000);
 
             let contract_call_result = pallet_contracts::Pallet::<T>::bare_call(
                 token_burner,
