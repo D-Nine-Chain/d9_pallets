@@ -12,14 +12,14 @@ pub type BalanceOf<T> =
 pub mod pallet {
     use super::*;
     use frame_support::{
-        pallet_prelude::{ *, ValueQuery, OptionQuery },
+        pallet_prelude::{ *, ValueQuery, OptionQuery, DispatchResult },
         inherent::Vec,
         BoundedVec,
         weights::Weight,
         Blake2_128Concat,
     };
     //  use sp_std::vec;
-    use frame_system::pallet_prelude::*;
+    use frame_system::pallet_prelude::{ *, OriginFor };
 
     use pallet_session::SessionManager;
     use sp_runtime::Saturating;
@@ -300,7 +300,20 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
+        pub fn get_sorted_candidates_with_votes() -> Vec<(T::AccountId, u64)> {
+            let mut candidates = CandidateAccumulativeVotes::<T>
+                ::iter()
+                .collect::<Vec<(T::AccountId, u64)>>();
+            candidates.sort_by(|a, b| b.1.cmp(&a.1));
+            let mut sorted_candidates = candidates
+                .into_iter()
+                .collect::<Vec<(T::AccountId, u64)>>();
+
+            sorted_candidates.truncate(T::MaxCandidates::get() as usize);
+            sorted_candidates
+        }
+
+        fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates = CandidateAccumulativeVotes::<T>
                 ::iter()
                 .collect::<Vec<(T::AccountId, u64)>>();
