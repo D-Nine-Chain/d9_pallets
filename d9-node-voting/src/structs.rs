@@ -95,7 +95,7 @@ impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId
     MaxEncodedLen
 )]
 #[scale_info(skip_type_params(T))]
-pub struct ValidatorStats<T: Config> {
+pub struct ValidatorVoteStats<T: Config> {
     pub account_id: T::AccountId,
     pub total_votes: u64,
     pub self_votes: u64,
@@ -114,23 +114,23 @@ pub struct ValidatorStats<T: Config> {
     TypeInfo,
     MaxEncodedLen
 )]
-pub struct CandidateMetadataStruct {
+pub struct NodeMetadataStruct {
     pub name: BoundedVec<u8, ConstU32<128>>,
-    pub supporter_share: u8,
+    pub sharing_percent: u8,
 }
 
-impl Default for CandidateMetadataStruct {
+impl Default for NodeMetadataStruct {
     fn default() -> Self {
-        CandidateMetadataStruct {
+        NodeMetadataStruct {
             name: BoundedVec::default(),
-            supporter_share: 0,
+            sharing_percent: 0,
         }
     }
 }
 
 pub struct ValidatorStatsOf<T: Config>(PhantomData<T>);
-impl<T: Config> Convert<T::AccountId, Option<ValidatorStats<T>>> for ValidatorStatsOf<T> {
-    fn convert(account_id: T::AccountId) -> Option<ValidatorStats<T>> {
-        <Pallet<T>>::validator_stats(account_id)
+impl<T: Config> Convert<T::AccountId, Option<ValidatorVoteStats<T>>> for ValidatorStatsOf<T> {
+    fn convert(account_id: T::AccountId) -> Option<ValidatorVoteStats<T>> {
+        <Pallet<T>>::current_validator_vote_stats(account_id)
     }
 }
