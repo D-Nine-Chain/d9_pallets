@@ -117,15 +117,7 @@ pub struct ValidatorVoteStats<T: Config> {
 pub struct NodeMetadataStruct {
     pub name: BoundedVec<u8, ConstU32<128>>,
     pub sharing_percent: u8,
-}
-
-impl Default for NodeMetadataStruct {
-    fn default() -> Self {
-        NodeMetadataStruct {
-            name: BoundedVec::default(),
-            sharing_percent: 0,
-        }
-    }
+    pub index_of_last_percent_change: u32,
 }
 
 pub struct ValidatorStatsOf<T: Config>(PhantomData<T>);

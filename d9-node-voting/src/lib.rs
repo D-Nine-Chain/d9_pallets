@@ -5,6 +5,7 @@ mod structs;
 pub use structs::*;
 pub use pallet::*;
 use frame_support::traits::Currency;
+use sp_arithmetic::Perquintill;
 
 pub type BalanceOf<T> =
     <<T as pallet_contracts::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -107,6 +108,10 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
+    #[pallet::getter(fn current_session_index)]
+    pub type CurrentSessionIndex<T: Config> = StorageValue<_, SessionIndex, ValueQuery>;
+
+    #[pallet::storage]
     #[pallet::getter(fn current_validator_vote_stats)]
     pub type CurrentValidatorVoteStats<T: Config> = StorageMap<
         _,
@@ -144,6 +149,7 @@ pub mod pallet {
         DelegatorHasInsufficientVotes, // has insufficient votes to distribute
         AttemptingToRemoveMoreVotesThanDelegated,
         CandidateDoesNotExist,
+        ErrorGettingNodeMetadata,
         VoterDidntDelegateToThisCandidate,
         NotActiveValidator,
         AtMaximumNumberOfCandidates,
@@ -184,17 +190,23 @@ pub mod pallet {
             origin: OriginFor<T>,
             candidate_metadata: NodeMetadataStruct
         ) -> DispatchResult {
-            let validator = ensure_signed(origin)?;
+            let candidate_node = ensure_signed(origin)?;
             let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
             let max_candidates = T::MaxCandidates::get();
             if current_candidate_count + 1 > max_candidates {
                 return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
             }
 
-            NodeAccumulativeVotes::<T>::insert(validator.clone(), 0);
+            NodeAccumulativeVotes::<T>::insert(candidate_node.clone(), 0);
+            let current_index = CurrentSessionIndex::<T>::get();
             CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
-            NodeMetadata::<T>::insert(validator.clone(), candidate_metadata);
-            Self::deposit_event(Event::CandidacySubmitted(validator));
+            let node_metadata: NodeMetadataStruct = NodeMetadataStruct {
+                name: candidate_metadata.name.clone(),
+                sharing_percent: candidate_metadata.sharing_percent.clone(),
+                index_of_last_percent_change: current_index,
+            };
+            NodeMetadata::<T>::insert(candidate_node.clone(), node_metadata);
+            Self::deposit_event(Event::CandidacySubmitted(candidate_node));
             Ok(())
         }
 
@@ -335,13 +347,13 @@ pub mod pallet {
             if !Self::is_valid_candidate(&origin) {
                 return Err(Error::<T>::CandidateDoesNotExist.into());
             }
-
-            let candidate_metadata = NodeMetadata::<T>::mutate(origin.clone(), |metadata| {
-                let mut metadata = metadata.clone().unwrap_or(NodeMetadataStruct::default());
-                metadata.name = name.clone();
-                metadata
-            });
-            NodeMetadata::<T>::insert(origin.clone(), candidate_metadata);
+            let node_metadata_option = NodeMetadata::<T>::get(origin.clone());
+            if node_metadata_option.is_none() {
+                return Err(Error::<T>::ErrorGettingNodeMetadata.into());
+            }
+            let mut node_metadata = node_metadata_option.unwrap();
+            node_metadata.name = name.clone();
+            NodeMetadata::<T>::insert(origin.clone(), node_metadata);
             Ok(())
         }
 
@@ -355,21 +367,26 @@ pub mod pallet {
                 return Err(Error::<T>::SupporterShareOutOfRange.into());
             }
 
-            let origin = ensure_signed(origin)?;
-            if !Self::is_valid_candidate(&origin) {
+            let node_id = ensure_signed(origin)?;
+            if !Self::is_valid_candidate(&node_id) {
                 return Err(Error::<T>::CandidateDoesNotExist.into());
             }
 
-            if CurrentValidatorVoteStats::<T>::contains_key(origin.clone()) {
+            if CurrentValidatorVoteStats::<T>::contains_key(node_id.clone()) {
                 return Err(Error::<T>::CurrentValidatorCanNotChangeSharePercentage.into());
             }
-
-            let candidate_metadata = NodeMetadata::<T>::mutate(origin.clone(), |metadata| {
-                let mut metadata = metadata.clone().unwrap_or(NodeMetadataStruct::default());
-                metadata.sharing_percent = sharing_percent.clone();
-                metadata
-            });
-            NodeMetadata::<T>::insert(origin.clone(), candidate_metadata);
+            let node_metadata_option = NodeMetadata::<T>::get(node_id.clone());
+            if node_metadata_option.is_none() {
+                return Err(Error::<T>::ErrorGettingNodeMetadata.into());
+            }
+            let mut node_metadata = node_metadata_option.unwrap();
+            let current_index = CurrentSessionIndex::<T>::get();
+            if node_metadata.index_of_last_percent_change > current_index.saturating_sub(3) {
+                return Err(Error::<T>::CurrentValidatorCanNotChangeSharePercentage.into());
+            }
+            node_metadata.sharing_percent = sharing_percent.clone();
+            node_metadata.index_of_last_percent_change = current_index;
+            NodeMetadata::<T>::insert(node_id.clone(), node_metadata);
             Ok(())
         }
     }
@@ -408,6 +425,26 @@ pub mod pallet {
             }
             let candidate_metadata = node_metadata.unwrap();
             Some(candidate_metadata.sharing_percent)
+        }
+
+        pub fn get_user_support_ratio(
+            delegator: T::AccountId,
+            candidate: T::AccountId
+        ) -> Option<Perquintill> {
+            let user_to_node_votes = UserToNodeVotesTotals::<T>::get((
+                delegator.clone(),
+                candidate.clone(),
+            ));
+            if user_to_node_votes == 0 {
+                return None;
+            }
+            let node_total_votes_option = NodeAccumulativeVotes::<T>::get(candidate.clone());
+            if node_total_votes_option.is_none() {
+                return None;
+            }
+            let node_total_votes = node_total_votes_option.unwrap();
+            let ratio = Perquintill::from_rational(user_to_node_votes, node_total_votes);
+            Some(ratio)
         }
 
         pub fn get_validator_supporter_share(validator: &T::AccountId) -> u8 {
@@ -624,7 +661,8 @@ pub mod pallet {
 
             Some(sorted_candidates)
         }
-        fn start_session(_start_index: SessionIndex) {
+        fn start_session(start_index: SessionIndex) {
+            let _ = CurrentSessionIndex::<T>::put(start_index);
             let sorted_candidates_opt = Self::get_sorted_candidates();
             if sorted_candidates_opt.is_none() {
                 return;
