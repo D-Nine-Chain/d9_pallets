@@ -110,6 +110,16 @@ pub mod pallet {
         OptionQuery
     >;
 
+    #[pallet::storage]
+    #[pallet::getter(fn candidate_metadata)]
+    pub type CandidateMetadata<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        CandidateMetadataStruct,
+        OptionQuery
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -132,6 +142,8 @@ pub mod pallet {
         NotActiveValidator,
         AtMaximumNumberOfCandidates,
         BurnAmountMustBeGreaterThan100,
+        SupporterShareOutOfRange,
+        CurrentValidatorCanNotChangeSharePercentage,
     }
 
     #[pallet::genesis_config]
@@ -160,7 +172,10 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn submit_candidacy(origin: OriginFor<T>) -> DispatchResult {
+        pub fn submit_candidacy(
+            origin: OriginFor<T>,
+            candidate_metadata: CandidateMetadataStruct
+        ) -> DispatchResult {
             let validator = ensure_signed(origin)?;
             let current_candidate_count = CurrentNumberOfCandidates::<T>::get();
             let max_candidates = T::MaxCandidates::get();
@@ -170,7 +185,7 @@ pub mod pallet {
 
             CandidateAccumulativeVotes::<T>::insert(validator.clone(), 0);
             CurrentNumberOfCandidates::<T>::put(current_candidate_count + 1);
-
+            CandidateMetadata::<T>::insert(validator.clone(), candidate_metadata);
             Self::deposit_event(Event::CandidacySubmitted(validator));
             Ok(())
         }
@@ -252,6 +267,7 @@ pub mod pallet {
             }
             let current_candidate_count = CurrentNumberOfCandidates::<T>::get();
             CurrentNumberOfCandidates::<T>::put(current_candidate_count - 1);
+            CandidateMetadata::<T>::remove(candidate.clone());
             Self::deposit_event(Event::CandidacyRemoved(candidate));
             Ok(())
         }
@@ -295,6 +311,54 @@ pub mod pallet {
             }
             Self::remove_votes_from_candidate(&voter, &from, delegated_votes);
             Self::add_votes_to_candidate(&voter, &to, delegated_votes);
+            Ok(())
+        }
+
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn change_candidate_name(
+            origin: OriginFor<T>,
+            name: BoundedVec<u8, ConstU32<128>>
+        ) -> DispatchResult {
+            let origin = ensure_signed(origin)?;
+            if !Self::is_valid_candidate(&origin) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+
+            let candidate_metadata = CandidateMetadata::<T>::mutate(origin.clone(), |metadata| {
+                let mut metadata = metadata.clone().unwrap_or(CandidateMetadataStruct::default());
+                metadata.name = name.clone();
+                metadata
+            });
+            CandidateMetadata::<T>::insert(origin.clone(), candidate_metadata);
+            Ok(())
+        }
+
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn change_candidate_supporter_share(
+            origin: OriginFor<T>,
+            supporter_share: u8
+        ) -> DispatchResult {
+            if supporter_share > 100 {
+                return Err(Error::<T>::SupporterShareOutOfRange.into());
+            }
+
+            let origin = ensure_signed(origin)?;
+            if !Self::is_valid_candidate(&origin) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+
+            if CurrentValidators::<T>::contains_key(origin.clone()) {
+                return Err(Error::<T>::CurrentValidatorCanNotChangeSharePercentage.into());
+            }
+
+            let candidate_metadata = CandidateMetadata::<T>::mutate(origin.clone(), |metadata| {
+                let mut metadata = metadata.clone().unwrap_or(CandidateMetadataStruct::default());
+                metadata.supporter_share = supporter_share.clone();
+                metadata
+            });
+            CandidateMetadata::<T>::insert(origin.clone(), candidate_metadata);
             Ok(())
         }
     }
@@ -530,13 +594,24 @@ pub mod pallet {
                         .drain(288..)
                         .collect();
                     for candidate in to_be_dropped {
-                        CandidateAccumulativeVotes::<T>::remove(candidate);
+                        CandidateMetadata::<T>::remove(candidate.clone());
+                        let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
+                        let mut prefix_iterator = CandidateSupporters::<T>::iter_prefix((
+                            candidate.clone(),
+                        ));
+                        while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
+                            support_to_remove.push((supporter, delegated_votes));
+                        }
+                        for support in support_to_remove {
+                            Self::remove_votes_from_candidate(&support.0, &candidate, support.1);
+                        }
                     }
                 }
             }
 
             // store validator stats
             sorted_candidates.truncate(T::MaxValidatorNodes::get() as usize);
+            let _ = CurrentValidators::<T>::drain();
             for validator in sorted_candidates.iter() {
                 let total_votes_opt = CandidateAccumulativeVotes::<T>::get(validator.clone());
                 if total_votes_opt.is_none() {

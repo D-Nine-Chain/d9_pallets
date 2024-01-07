@@ -1,4 +1,4 @@
-use frame_support::pallet_prelude::*;
+use frame_support::{ pallet_prelude::*, BoundedVec };
 use frame_support::RuntimeDebugNoBound;
 use codec::MaxEncodedLen;
 use crate::pallet::Config;
@@ -100,6 +100,32 @@ pub struct ValidatorStats<T: Config> {
     pub total_votes: u64,
     pub self_votes: u64,
     pub delegated_votes: u64,
+}
+
+#[derive(
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Encode,
+    Decode,
+    RuntimeDebug,
+    TypeInfo,
+    MaxEncodedLen
+)]
+pub struct CandidateMetadataStruct {
+    pub name: BoundedVec<u8, ConstU32<128>>,
+    pub supporter_share: u8,
+}
+
+impl Default for CandidateMetadataStruct {
+    fn default() -> Self {
+        CandidateMetadataStruct {
+            name: BoundedVec::default(),
+            supporter_share: 0,
+        }
+    }
 }
 
 pub struct ValidatorStatsOf<T: Config>(PhantomData<T>);
