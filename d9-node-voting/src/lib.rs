@@ -377,6 +377,15 @@ pub mod pallet {
             sorted_candidates
         }
 
+        pub fn get_validator_supporter_share(validator: &T::AccountId) -> u8 {
+            let candidate_metadata = CandidateMetadata::<T>::get(validator.clone());
+            if candidate_metadata.is_none() {
+                return 0;
+            }
+            let candidate_metadata = candidate_metadata.unwrap();
+            candidate_metadata.supporter_share
+        }
+
         fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates = CandidateAccumulativeVotes::<T>
                 ::iter()
