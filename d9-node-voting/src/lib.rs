@@ -20,7 +20,7 @@ pub mod pallet {
         Blake2_128Concat,
     };
     //  use sp_std::vec;
-    use frame_system::pallet_prelude::{ *, OriginFor };
+    use frame_system::{ pallet_prelude::{ *, OriginFor }, ensure_root };
 
     use pallet_session::SessionManager;
     use sp_runtime::Saturating;
@@ -43,6 +43,8 @@ pub mod pallet {
         type MaxCandidates: Get<u32>;
 
         type MaxValidatorNodes: Get<u32>;
+
+        type RewardCalculator: NodeRewardManager<Self>;
     }
 
     /// defines the voting power of a user
@@ -130,7 +132,9 @@ pub mod pallet {
         NodeMetadataStruct,
         OptionQuery
     >;
-
+    #[pallet::storage]
+    #[pallet::getter(fn current_session_index)]
+    pub type PalletAdmin<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -149,6 +153,7 @@ pub mod pallet {
         DelegatorHasInsufficientVotes, // has insufficient votes to distribute
         AttemptingToRemoveMoreVotesThanDelegated,
         CandidateDoesNotExist,
+        CandidateAlreadyExists,
         ErrorGettingNodeMetadata,
         VoterDidntDelegateToThisCandidate,
         NotActiveValidator,
@@ -191,6 +196,10 @@ pub mod pallet {
             candidate_metadata: NodeMetadataStruct
         ) -> DispatchResult {
             let candidate_node = ensure_signed(origin)?;
+            let candidate_votes_opt = NodeAccumulativeVotes::<T>::get(candidate_node.clone());
+            if candidate_votes_opt.is_some() {
+                return Err(Error::<T>::CandidateAlreadyExists.into());
+            }
             let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
             let max_candidates = T::MaxCandidates::get();
             if current_candidate_count + 1 > max_candidates {
@@ -221,6 +230,7 @@ pub mod pallet {
             weight: Weight
         ) -> DispatchResult {
             let token_burner = ensure_signed(origin)?;
+
             Self::call_burn_contract(
                 token_burner,
                 beneficiary_voter.clone(),
@@ -389,6 +399,63 @@ pub mod pallet {
             NodeMetadata::<T>::insert(node_id.clone(), node_metadata);
             Ok(())
         }
+
+        #[pallet::call_index(8)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn set_pallet_admin(origin: OriginFor<T>, new_admin: T::AccountId) -> DispatchResult {
+            let caller = ensure_signed(origin)?;
+            let current_admin = PalletAdmin::<T>::get();
+            if current_admin.is_some() {
+                ensure!(
+                    current_admin.unwrap() == caller,
+                    "Only the current admin can set a new admin"
+                );
+            } else {
+                ensure_root(origin)?;
+            }
+            PalletAdmin::<T>::put(new_admin);
+            Ok(())
+        }
+
+        #[pallet::call_index(9)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn set_node_reward_contract(
+            origin: OriginFor<T>,
+            new_contract: T::AccountId
+        ) -> DispatchResult {
+            let caller = ensure_signed(origin)?;
+            let current_admin = PalletAdmin::<T>::get();
+            if current_admin.is_some() {
+                ensure!(
+                    current_admin.unwrap() == caller,
+                    "Only the current admin can set a new admin"
+                );
+            } else {
+                ensure_root(origin)?;
+            }
+            PalletAdmin::<T>::put(new_admin);
+            Ok(())
+        }
+
+        #[pallet::call_index(10)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        pub fn set_mining_pool_contract(
+            origin: OriginFor<T>,
+            new_contract: T::AccountId
+        ) -> DispatchResult {
+            let caller = ensure_signed(origin)?;
+            let current_admin = PalletAdmin::<T>::get();
+            if current_admin.is_some() {
+                ensure!(
+                    current_admin.unwrap() == caller,
+                    "Only the current admin can set a new admin"
+                );
+            } else {
+                ensure_root(origin)?;
+            }
+            MiningPoolContract::<T>::put(new_contract);
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -474,6 +541,44 @@ pub mod pallet {
         }
 
         fn call_burn_contract(
+            token_burner: T::AccountId,
+            voter: T::AccountId,
+            main_pool: T::AccountId,
+            amount: BalanceOf<T>,
+            burn_contract: T::AccountId,
+            weight: Weight
+        ) -> Result<(), DispatchError> {
+            let decimals: BalanceOf<T> = T::CurrencySubUnits::get();
+            let burn_minimum: BalanceOf<T> = <BalanceOf<T>>::from(100u32).saturating_mul(decimals);
+            if amount < burn_minimum {
+                return Err(Error::<T>::BurnAmountMustBeGreaterThan100.into());
+            }
+            //0xb1efc17b
+            let mut selector: Vec<u8> = [0xb1, 0xef, 0xc1, 0x7b].into();
+            let mut encoded_voter: Vec<u8> = voter.encode();
+            let mut encoded_burn_contract: Vec<u8> = burn_contract.encode();
+            let mut data_for_contract_call = Vec::new();
+            data_for_contract_call.append(&mut selector);
+            data_for_contract_call.append(&mut encoded_voter);
+            data_for_contract_call.append(&mut encoded_burn_contract);
+
+            let contract_call_result = pallet_contracts::Pallet::<T>::bare_call(
+                token_burner,
+                main_pool,
+                amount,
+                weight,
+                None,
+                data_for_contract_call,
+                false,
+                pallet_contracts::Determinism::Enforced
+            ).result;
+            if let Err(e) = contract_call_result {
+                return Err(e);
+            }
+            Ok(())
+        }
+
+        fn call_node_reward_contract(
             token_burner: T::AccountId,
             voter: T::AccountId,
             main_pool: T::AccountId,
@@ -661,6 +766,7 @@ pub mod pallet {
 
             Some(sorted_candidates)
         }
+
         fn start_session(start_index: SessionIndex) {
             let _ = CurrentSessionIndex::<T>::put(start_index);
             let sorted_candidates_opt = Self::get_sorted_candidates();
@@ -716,8 +822,16 @@ pub mod pallet {
                 );
             }
         }
-        fn end_session(_end_index: SessionIndex) {
+        fn end_session(end_index: SessionIndex) {
             let _ = CurrentValidatorVoteStats::<T>::drain();
+            let _ = NodeRewardManager::<T>::update_reward_pool(end_index);
+            let sorted_node_list_opt = SessionNodeList::<T>::get(end_index);
+            match sorted_node_list_opt {
+                Some(sorted_node_list) => {
+                    let _ = NodeRewardManager::<T>::calculate_rewards(sorted_node_list);
+                }
+                None => {}
+            }
         }
     }
 }

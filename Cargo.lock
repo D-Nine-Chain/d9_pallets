@@ -493,6 +493,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "d9-node-rewards"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "hex",
+ "impl-trait-for-tuples",
+ "pallet-balances",
+ "pallet-contracts",
+ "pallet-d9-node-voting",
+ "pallet-session",
+ "pallet-utility",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-arithmetic 19.0.0",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std 5.0.0",
+]
+
+[[package]]
 name = "der"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1757,6 +1784,7 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std 5.0.0",
+ "substrate-fixed",
 ]
 
 [[package]]
@@ -3063,6 +3091,26 @@ dependencies = [
  "schnorrkel",
  "sha2 0.9.9",
  "zeroize",
+]
+
+[[package]]
+name = "substrate-fixed"
+version = "0.5.9"
+source = "git+https://github.com/encointer/substrate-fixed#a75f3ba3f7c7893fb420500639cc055f964b1b88"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "substrate-typenum",
+]
+
+[[package]]
+name = "substrate-typenum"
+version = "1.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0f0091e93c2c75b233ae39424c52cb8a662c0811fb68add149e20e5d7e8a788"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
 ]
 
 [[package]]

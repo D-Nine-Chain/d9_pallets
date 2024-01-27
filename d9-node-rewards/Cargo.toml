@@ -1,5 +1,5 @@
 [package]
-name = "pallet-d9-node-voting"
+name = "d9-node-rewards"
 version = "0.1.0"
 edition = "2021"
 
@@ -29,8 +29,7 @@ sp-arithmetic = { version = "19", default-features = false }
 sp-api = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-staking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
-substrate-fixed = { default-features = false, git = "https://github.com/encointer/substrate-fixed" }
-
+pallet-d9-node-voting = { version = "0.1.0", default-features = false, path = "../d9-node-voting" }
 [dev-dependencies]
 sp-core = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-io = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
@@ -53,6 +52,7 @@ std = [
    "sp-std/std",
    "sp-api/std",
    "sp-staking/std",
+   "pallet-d9-node-voting/std",
 ]
 
 runtime-benchmarks = [

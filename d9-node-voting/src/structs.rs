@@ -5,6 +5,10 @@ use crate::pallet::Config;
 use crate::pallet::Pallet;
 use crate::BalanceOf;
 use sp_runtime::traits::Convert;
+use sp_staking::SessionIndex;
+use substrate_fixed::{ FixedU128, types::extra::U30 };
+pub type FixedBalance = FixedU128<U30>;
+
 #[derive(
     PartialEqNoBound,
     EqNoBound,
@@ -125,4 +129,9 @@ impl<T: Config> Convert<T::AccountId, Option<ValidatorVoteStats<T>>> for Validat
     fn convert(account_id: T::AccountId) -> Option<ValidatorVoteStats<T>> {
         <Pallet<T>>::current_validator_vote_stats(account_id)
     }
+}
+
+pub trait NodeRewardManager<T: Config> {
+    fn update_reward_pool(session_index: SessionIndex) -> ();
+    fn calculate_rewards(sorted_node_list: BoundedVec<T::AccountId, ConstU32<300>>) -> ();
 }
