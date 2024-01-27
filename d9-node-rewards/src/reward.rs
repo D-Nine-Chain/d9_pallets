@@ -1,6 +1,8 @@
 use frame_support::traits::tokens::Balance;
 
-use crate::structs::FixedBalance;
+use substrate_fixed::{ FixedU128, types::extra::U30 };
+pub type FixedBalance = FixedU128<U30>;
+
 #[derive(
     PartialEq,
     Eq,
@@ -35,11 +37,6 @@ pub enum SuperNodeSubTier {
     Upper,
     Middle,
     Lower,
-}
-struct TierAllotments {
-    supers: Balance,
-    standbys: Balance,
-    candidates: Balance,
 }
 
 #[derive(

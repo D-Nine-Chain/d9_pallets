@@ -517,6 +517,7 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std 5.0.0",
+ "substrate-fixed",
 ]
 
 [[package]]

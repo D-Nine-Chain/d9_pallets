@@ -6,8 +6,6 @@ use crate::pallet::Pallet;
 use crate::BalanceOf;
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
-use substrate_fixed::{ FixedU128, types::extra::U30 };
-pub type FixedBalance = FixedU128<U30>;
 
 #[derive(
     PartialEqNoBound,
