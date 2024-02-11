@@ -87,20 +87,18 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         fn root_or_admin(origin: OriginFor<T>) -> Result<(), BadOrigin> {
-            let caller: T::AccountId = ensure_signed(origin.clone())?;
-
-            // Prioritize root check:
-            if ensure_root(origin).is_ok() {
-                return Ok(());
+            let origin = ensure_signed_or_root(origin)?;
+            match origin {
+                Some(caller) => {
+                    let admin = PalletAdmin::<T>::get();
+                    if admin.is_some() && admin.unwrap() == caller {
+                        return Ok(());
+                    } else {
+                        return Err(BadOrigin);
+                    }
+                }
+                None => return Ok(()),
             }
-
-            // Check for admin:
-            if PalletAdmin::<T>::get().map_or(false, |admin| admin == caller) {
-                return Ok(());
-            }
-
-            // Neither root nor admin:
-            Err(BadOrigin)
         }
 
         fn account_id() -> T::AccountId {
