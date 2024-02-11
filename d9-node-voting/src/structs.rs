@@ -1,9 +1,9 @@
-use frame_support::{ pallet_prelude::*, BoundedVec };
-use frame_support::RuntimeDebugNoBound;
-use codec::MaxEncodedLen;
 use crate::pallet::Config;
 use crate::pallet::Pallet;
 use crate::BalanceOf;
+use codec::MaxEncodedLen;
+use frame_support::RuntimeDebugNoBound;
+use frame_support::{pallet_prelude::*, BoundedVec};
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
@@ -15,7 +15,7 @@ use sp_staking::SessionIndex;
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 pub struct VotingInterest {
     #[codec(compact)]
@@ -27,7 +27,7 @@ pub struct VotingInterest {
 impl Default for VotingInterest {
     fn default() -> Self {
         VotingInterest {
-            total: 0, // Default value for total
+            total: 0,     // Default value for total
             delegated: 0, // Default value for delegated
         }
     }
@@ -50,7 +50,7 @@ impl VotingInterest {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 
 /// defines how a user will delegate their votes among a particular candidate
@@ -68,7 +68,7 @@ pub struct ValidatorDelegations<T: Config> {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct Candidate<T: Config> {
@@ -85,16 +85,7 @@ impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId
 }
 
 #[derive(
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Encode,
-    Decode,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct ValidatorVoteStats<T: Config> {
@@ -105,16 +96,7 @@ pub struct ValidatorVoteStats<T: Config> {
 }
 
 #[derive(
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Encode,
-    Decode,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
 )]
 pub struct NodeMetadataStruct {
     pub name: BoundedVec<u8, ConstU32<128>>,
@@ -129,7 +111,17 @@ impl<T: Config> Convert<T::AccountId, Option<ValidatorVoteStats<T>>> for Validat
     }
 }
 
-pub trait NodeRewardManager<T: Config> {
-    fn update_reward_pool(session_index: SessionIndex) -> ();
-    fn calculate_rewards(sorted_node_list: BoundedVec<T::AccountId, ConstU32<300>>) -> ();
+pub trait NodeRewardManager<AccountId> {
+    fn update_rewards(
+        end_index: SessionIndex,
+        bounded_nodes: BoundedVec<AccountId, ConstU32<300>>,
+    ) -> ();
+}
+#[derive(
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
+)]
+pub struct TestStruct {
+    pub name: BoundedVec<u8, ConstU32<128>>,
+    pub sharing_percent: u8,
+    pub index_of_last_percent_change: u32,
 }
