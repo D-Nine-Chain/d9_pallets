@@ -1,5 +1,5 @@
 [package]
-name = "d9-node-rewards"
+name = "pallet-d9-node-rewards"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = [
-   "derive",
-   "max-encoded-len",
+  "derive",
+  "max-encoded-len",
 ] }
 impl-trait-for-tuples = "0.2.2"
 scale-info = { version = "2.5.0", default-features = false, features = [
-   "derive",
+  "derive",
 ] }
 substrate-fixed = { default-features = false, git = "https://github.com/encointer/substrate-fixed" }
 serde = { version = "1.0.163", features = ["derive"], optional = true }
@@ -40,26 +40,26 @@ pallet-utility = { version = "4.0.0-dev", default-features = false, git = "https
 default = ["std"]
 
 std = [
-   "frame-benchmarking?/std",
-   "codec/std",
-   "frame-support/std",
-   "frame-system/std",
-   "frame-election-provider-support/std",
-   "pallet-balances/std",
-   "pallet-contracts/std",
-   "scale-info/std",
-   "serde",
-   "sp-runtime/std",
-   "sp-std/std",
-   "sp-api/std",
-   "sp-staking/std",
-   "pallet-d9-node-voting/std",
+  "frame-benchmarking?/std",
+  "codec/std",
+  "frame-support/std",
+  "frame-system/std",
+  "frame-election-provider-support/std",
+  "pallet-balances/std",
+  "pallet-contracts/std",
+  "scale-info/std",
+  "serde",
+  "sp-runtime/std",
+  "sp-std/std",
+  "sp-api/std",
+  "sp-staking/std",
+  "pallet-d9-node-voting/std",
 ]
 
 runtime-benchmarks = [
-   "frame-benchmarking/runtime-benchmarks",
-   "frame-support/runtime-benchmarks",
-   "frame-system/runtime-benchmarks",
+  "frame-benchmarking/runtime-benchmarks",
+  "frame-support/runtime-benchmarks",
+  "frame-system/runtime-benchmarks",
 ]
 
 try-runtime = ["frame-support/try-runtime"]
