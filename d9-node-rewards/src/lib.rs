@@ -54,8 +54,6 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         ErrorIssuingRewards,
-        ContractCalledBy(T::AccountId),
-        FirstOfTheVector(T::AccountId),
     }
 
     #[pallet::error]
@@ -146,7 +144,6 @@ pub mod pallet {
                 false,
                 pallet_contracts::Determinism::Enforced
             ).result;
-            Self::deposit_event(Event::ContractCalledBy(Self::account_id()));
             match contract_call_result {
                 Ok(_) => Ok(()),
                 Err(_) => Err(Error::<T>::ErrorUpdatingNodeRewardContract),
@@ -164,7 +161,7 @@ pub mod pallet {
                 end_index,
                 sorted_node_list
             );
-            if let Err(_) = contract_update_result {
+            if contract_update_result.is_err() {
                 Self::deposit_event(Event::ErrorIssuingRewards);
                 return;
             }
