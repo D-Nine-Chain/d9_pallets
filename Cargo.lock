@@ -493,34 +493,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "d9-node-rewards"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-election-provider-support",
- "frame-support",
- "frame-system",
- "hex",
- "impl-trait-for-tuples",
- "pallet-balances",
- "pallet-contracts",
- "pallet-d9-node-voting",
- "pallet-session",
- "pallet-utility",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-api",
- "sp-arithmetic 19.0.0",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-staking",
- "sp-std 5.0.0",
- "substrate-fixed",
-]
-
-[[package]]
 name = "der"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1759,6 +1731,34 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std 5.0.0",
+]
+
+[[package]]
+name = "pallet-d9-node-rewards"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "hex",
+ "impl-trait-for-tuples",
+ "pallet-balances",
+ "pallet-contracts",
+ "pallet-d9-node-voting",
+ "pallet-session",
+ "pallet-utility",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-arithmetic 19.0.0",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std 5.0.0",
+ "substrate-fixed",
 ]
 
 [[package]]

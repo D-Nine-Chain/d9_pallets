@@ -109,18 +109,18 @@ pub mod pallet {
 
         fn update_rewards_on_contract(
             end_index: SessionIndex,
-            sorted_nodes: BoundedVec<T::AccountId, ConstU32<300>>
+            sorted_nodes: Vec<(T::AccountId, u64)>
         ) -> Result<(), Error<T>> {
-            let sorted_nodes_vec = sorted_nodes
-                .iter()
-                .cloned() // Create owned copies
-                .collect::<Vec<T::AccountId>>();
+            // let sorted_nodes_vec = sorted_nodes
+            //     .iter()
+            //     .cloned() // Create owned copies
+            //     .collect::<Vec<T::AccountId>>();
 
             //0x93440f8d
             //update_rewards
             let mut selector: Vec<u8> = [0x93, 0x44, 0x0f, 0x8d].into();
             let mut encoded_index = (end_index as u32).encode();
-            let mut encoded_nodes: Vec<u8> = sorted_nodes_vec.encode();
+            let mut encoded_nodes: Vec<u8> = sorted_nodes.encode();
             let mut data_for_contract_call = Vec::new();
             data_for_contract_call.append(&mut selector);
             data_for_contract_call.append(&mut encoded_index);
@@ -155,7 +155,7 @@ pub mod pallet {
         /// pull data to update the pool
         fn update_rewards(
             end_index: SessionIndex,
-            sorted_node_list: BoundedVec<T::AccountId, ConstU32<300>>
+            sorted_node_list: Vec<(T::AccountId, u64)>
         ) -> () {
             let contract_update_result = Self::update_rewards_on_contract(
                 end_index,
