@@ -3,7 +3,7 @@ use crate::pallet::Pallet;
 use crate::BalanceOf;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{ pallet_prelude::*, BoundedVec };
+use frame_support::{ pallet_prelude::*, BoundedVec, inherent::Vec };
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
