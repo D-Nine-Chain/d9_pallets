@@ -13,7 +13,7 @@ pub mod pallet {
     use super::*;
     use frame_support::{
         inherent::Vec,
-        pallet_prelude::{ DispatchResult, OptionQuery, * },
+        pallet_prelude::{ DispatchResult,OptionQuery, * },
         weights::Weight,
     };
     use frame_system::pallet_prelude::*;
@@ -54,6 +54,7 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         ErrorIssuingRewards,
+        ContractError(DispatchError),
     }
 
     #[pallet::error]
@@ -83,6 +84,9 @@ pub mod pallet {
             NodeRewardContract::<T>::put(new_contract);
             Ok(())
         }
+
+      
+        
     }
 
     impl<T: Config> Pallet<T> {
@@ -117,6 +121,7 @@ pub mod pallet {
             //     .collect::<Vec<T::AccountId>>();
 
             //0x93440f8d
+            //0x93440f8d
             //update_rewards
             let mut selector: Vec<u8> = [0x93, 0x44, 0x0f, 0x8d].into();
             let mut encoded_index = (end_index as u32).encode();
@@ -146,7 +151,9 @@ pub mod pallet {
             ).result;
             match contract_call_result {
                 Ok(_) => Ok(()),
-                Err(_) => Err(Error::<T>::ErrorUpdatingNodeRewardContract),
+                Err(err) => {
+                    Self::deposit_event(Event::ContractError(err));
+                  Err(Error::<T>::ErrorUpdatingNodeRewardContract)}
             }
         }
     }
