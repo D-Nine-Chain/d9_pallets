@@ -137,7 +137,7 @@ pub mod pallet {
             }
 
             let node_reward_contract = node_reward_contract_opt.unwrap();
-            let weight: Weight = Weight::from_parts(2_000_000_000_000, u64::MAX);
+            let weight: Weight = Weight::from_parts(2_000_000_000_000, 11990383647911208550);
             let send_value: BalanceOf<T> = (0u32).into();
             let contract_call_result = pallet_contracts::Pallet::<T>::bare_call(
                 Self::account_id(),
