@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-rewards"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1743,6 +1743,7 @@ dependencies = [
  "frame-system",
  "hex",
  "impl-trait-for-tuples",
+ "log",
  "pallet-balances",
  "pallet-contracts",
  "pallet-d9-node-voting",
@@ -1763,7 +1764,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-voting"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
