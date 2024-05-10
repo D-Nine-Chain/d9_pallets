@@ -213,7 +213,7 @@ pub mod pallet {
 
         #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(5, 5))]
-        pub fn add_voting_interest_burn(
+        pub fn add_voting_interest(
             origin: OriginFor<T>,
             beneficiary_voter: T::AccountId,
             main_pool: T::AccountId,
@@ -232,7 +232,7 @@ pub mod pallet {
             )?;
 
             let voting_interest_increase = Self::calculate_voting_interests(amount_to_burn);
-            Self::add_voting_interests(beneficiary_voter, voting_interest_increase);
+            Self::add_voting_interest_internal(beneficiary_voter, voting_interest_increase);
             Ok(())
         }
 
@@ -399,7 +399,10 @@ pub mod pallet {
         ///
         /// * `delegator` - the user to add voting interest to
         /// * `votes` - the number of votes to add
-        pub fn add_voting_interests(delegator: T::AccountId, voting_interest_increase: u64) {
+        pub fn add_voting_interest_internal(
+            delegator: T::AccountId,
+            voting_interest_increase: u64,
+        ) {
             let voting_interest =
                 UsersVotingInterests::<T>::mutate(delegator.clone(), |voting_interest_opt| {
                     let voting_interest = voting_interest_opt
