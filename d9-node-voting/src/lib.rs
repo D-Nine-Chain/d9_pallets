@@ -479,7 +479,7 @@ pub mod pallet {
             candidate_metadata.sharing_percent
         }
 
-        fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
+        pub fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates =
                 NodeAccumulativeVotes::<T>::iter().collect::<Vec<(T::AccountId, u64)>>();
             candidates.sort_by(|a, b| b.1.cmp(&a.1));

@@ -1,12 +1,11 @@
 [package]
-name = "pallet-d9-node-rewards"
+name = "d9-council-lock"
 version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4"
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = [
     "derive",
     "max-encoded-len",
@@ -22,7 +21,7 @@ frame-support = { version = "4.0.0-dev", default-features = false, git = "https:
 frame-election-provider-support = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 frame-system = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 pallet-balances = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
-pallet-contracts = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+
 sp-runtime = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-std = { version = "5.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 
@@ -31,7 +30,7 @@ sp-arithmetic = { version = "19", default-features = false }
 sp-api = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-staking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
-pallet-d9-node-voting = { version = "0.2.0", default-features = false, path = "../d9-node-voting" }
+pallet-d9-node-voting = { version = "1.2.0", default-features = false, path = "../d9-node-voting" }
 [dev-dependencies]
 sp-core = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-io = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
@@ -47,7 +46,6 @@ std = [
     "frame-system/std",
     "frame-election-provider-support/std",
     "pallet-balances/std",
-    "pallet-contracts/std",
     "scale-info/std",
     "serde",
     "sp-runtime/std",
