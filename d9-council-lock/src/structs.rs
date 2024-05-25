@@ -66,3 +66,8 @@ pub struct AccountLock<T: Config> {
     /// the index at which the account was locked
     lock_index: SessionIndex,
 }
+
+pub trait D9SessionDataProvider<AccountId> {
+    fn get_sorted_candidates() -> Option<Vec<AccountId>>;
+    fn current_session_index() -> SessionIndex;
+}

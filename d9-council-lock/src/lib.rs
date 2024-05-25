@@ -17,12 +17,12 @@ pub mod pallet {
     use codec::{Codec, MaxEncodedLen};
     use frame_support::{
         inherent::Vec,
-        pallet_prelude::{DispatchResult, OptionQuery, ValueQuery, *},
+        pallet_prelude::{DispatchResult, OptionQuery, StorageMap, ValueQuery, *},
         weights::Weight,
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
-    use pallet_d9_node_voting::NodeRewardManager;
+
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::{AtLeast32BitUnsigned, BadOrigin};
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
@@ -33,7 +33,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + scale_info::TypeInfo {
         type Currency: Currency<Self::AccountId>;
         type LockableCurrency: LockableCurrency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -47,6 +47,8 @@ pub mod pallet {
         type AssentingVotesThreshold: Get<u32>;
         // minimum votes to REJECT an account block
         type DissentingVotesThreshold: Get<u32>;
+        // something to get index and candidate list
+        type SessionDataProvider: D9SessionDataProvider<Self::AccountId>;
     }
     //NOTE - if these values are to be changed then let it be done by a seperate pallet that will hav
 
@@ -149,7 +151,7 @@ pub mod pallet {
 
         /// validate origin is permitted to nominate
         fn check_nominator(account_id: T::AccountId) -> Result<(), Error<T>> {
-            let ranked_nodes_option = pallet_d9_node_voting::get_sorted_candidates();
+            let ranked_nodes_option = T::SessionDataProvider::get_sorted_candidates();
             if ranked_nodes_option.is_none() {
                 return Err(Error::ErrorGettingRankedNodes);
             }
@@ -163,7 +165,7 @@ pub mod pallet {
         }
 
         fn is_account_lockable(account_id: T::AccountId) -> Result<(), Error<T>> {
-            let existing_proposal = LockProposals::<T>::get(account_id);
+            let existing_proposal = LockProposals::<T>::get(account_id.clone());
             if existing_proposal.is_some() {
                 return Err(Error::ProposalAlreadyExists);
             }
@@ -180,11 +182,11 @@ pub mod pallet {
             nominator: T::AccountId,
         ) -> Result<(), Error<T>> {
             let proposal = LockProposal {
-                proposed_account: account_id,
-                session_index: pallet_session::current_session_index(),
+                proposed_account: account_id.clone(),
+                session_index: T::SessionDataProvider::current_session_index(),
                 nominator,
             };
-            LockProposals::<T>::insert(account_id, proposal);
+            LockProposals::<T>::insert(account_id.clone(), proposal);
             Self::deposit_event(Event::AccountNominatedForLock(account_id));
             Ok(())
         }
