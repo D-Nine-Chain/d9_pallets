@@ -62,11 +62,6 @@ pub mod pallet {
         ErrorUpdatingNodeRewardContract,
     }
 
-    #[pallet::genesis_config]
-    pub struct GenesisConfig<T: Config> {
-        pub initial_candidates: Vec<T::AccountId>,
-    }
-
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]

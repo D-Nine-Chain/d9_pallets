@@ -1,13 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+use sp_staking::SessionIndex;
 use sp_std::prelude::*;
 mod structs;
-pub use structs::*;
 use frame_support::{
     traits::{Currency, LockableCurrency},
     PalletId,
 };
 pub use pallet::*;
-use sp_staking::SessionIndex;
+
+pub use structs::*;
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 #[frame_support::pallet]
@@ -18,6 +19,7 @@ pub mod pallet {
         inherent::Vec,
         pallet_prelude::{DispatchResult, OptionQuery, ValueQuery, *},
         weights::Weight,
+        Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
     use pallet_d9_node_voting::NodeRewardManager;
@@ -58,20 +60,30 @@ pub mod pallet {
     pub type ProposalFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
     #[pallet::storage]
-    #[pallet::getter(fn lock_candidates)]
-    pub type LockProposals<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AccountLock<T>, OptionQuery>;
+    #[pallet::getter(fn lock_proposals)]
+    pub type LockProposals<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, LockProposal<T>, OptionQuery>;
 
-    #[pallet::stroage]
+    #[pallet::storage]
     #[pallet::getter(fn active_lock_referendums)]
-    pub type LockReferendums<T:Config> = StorageMap<_, Blake2_128Concat,  T::Accountid, LockReferendum, OptionQuery>;
+    pub type LockReferendums<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, LockReferendum<T>, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn concluded_lock_referendums)]
-    pub type ConcludedLockVotes<T:Config> = DoubleMap<_, Blake2_128Concat, SessionIndex, T::AccountId, Vote<T>, OptionQuery>;
+    pub type ConcludedLockVotes<T: Config> = StorageNMap<
+        Key = (
+            NMapKey<Blake2_128Concat, SessionIndex>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        Value = LockReferendum<T>,
+        QueryKind = OptionQuery,
+    >;
 
     #[pallet::storage]
     #[pallet::getter(fn locked_accounts)]
-    pub type LockedAccounts<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AccountLock<T>, OptionQuery>;
+    pub type LockedAccounts<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, AccountLock<T>, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -83,7 +95,7 @@ pub mod pallet {
         VoteStarted,
         VoteEnded,
         ProposalPassed,
-        ProposalRejected
+        ProposalRejected,
     }
 
     #[pallet::error]
@@ -92,14 +104,6 @@ pub mod pallet {
         ErrorGettingRankedNodes,
         AccountAlreadyLocked,
         ProposalAlreadyExists,
-    }
-
-    #[pallet::genesis_config]
-    pub struct GenesisConfig<T: Config> {}
-
-    #[pallet::genesis_build]
-    impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
-        fn build(&self) {}
     }
 
     #[pallet::call]
@@ -121,6 +125,7 @@ pub mod pallet {
             let nominator = ensure_signed(origin)?;
             let _ = Self::check_nominator(nominator.clone())?;
             let _ = Self::is_account_lockable(account_to_lock.clone())?;
+            Ok(())
         }
     }
 
@@ -143,40 +148,43 @@ pub mod pallet {
         }
 
         /// validate origin is permitted to nominate
-        fn check_nominator(account_id: T::AccountId) -> Result<(), Error> {
-            let ranked_nodes_option = Self::get_sorted_candidates();
+        fn check_nominator(account_id: T::AccountId) -> Result<(), Error<T>> {
+            let ranked_nodes_option = pallet_d9_node_voting::get_sorted_candidates();
             if ranked_nodes_option.is_none() {
                 return Err(Error::ErrorGettingRankedNodes);
             }
             let ranked_nodes = ranked_nodes_option.unwrap();
             if let Some(index) = ranked_nodes.iter().position(|x| x == &account_id) {
-                if index < MinNominatorRank as usize {
+                if index < T::MinNominatorRank::get() as usize {
                     return Ok(());
                 }
             }
             return Err(Error::NotValidNominator);
         }
 
-        fn is_account_lockable(account_id:T::AccountId)->Result<(),Error>{}{
-            let existing_proposal = LockCandidates::<T>::get(account_id);
+        fn is_account_lockable(account_id: T::AccountId) -> Result<(), Error<T>> {
+            let existing_proposal = LockProposals::<T>::get(account_id);
             if existing_proposal.is_some() {
                 return Err(Error::ProposalAlreadyExists);
             }
             let locked_account = LockedAccounts::<T>::get(account_id);
             if locked_account.is_some() {
                 return Err(Error::AccountAlreadyLocked);
-            } 
+            }
 
             return Ok(());
         }
 
-        fn _propose_lock(account_id:T::AccountId, nominator:T::AccountId)->Result<(),Error>{
-            let proposal = LockProposal{
-                proposed_account:account_id,
-                session_index:Self::current_session_index(),
-                nominator
-            }; 
-            LockCandidates::<T>::insert(account_id,lock);
+        fn _propose_lock(
+            account_id: T::AccountId,
+            nominator: T::AccountId,
+        ) -> Result<(), Error<T>> {
+            let proposal = LockProposal {
+                proposed_account: account_id,
+                session_index: pallet_session::current_session_index(),
+                nominator,
+            };
+            LockProposals::<T>::insert(account_id, proposal);
             Self::deposit_event(Event::AccountNominatedForLock(account_id));
             Ok(())
         }
