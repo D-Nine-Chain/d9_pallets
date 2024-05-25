@@ -8,14 +8,22 @@ use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
 #[derive(
-    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
+    PartialEqNoBound,
+    EqNoBound,
+    CloneNoBound,
+    Encode,
+    Decode,
+    RuntimeDebugNoBound,
+    TypeInfo,
+    MaxEncodedLen,
 )]
-pub enum ProposalType {
-    AccountLock,
-    ChangeDissentingThreshold,
-    ChangeAssentingThreshold,
-    ChangeVotingCouncilSize,
-    ChangeAccountLockFee,
+pub struct LockProposal {
+    /// the account that is being voted on.
+    proposed_account: T::AccountId,
+    /// the index at which the proposal was made. this will determine when the vote will start.
+    session_index: SessionIndex,
+    /// who nominated this account
+    nominator: T::AccountId,
 }
 
 #[derive(
@@ -32,7 +40,8 @@ pub enum ProposalType {
 /// the vote that will determine the lock status of an account
 ///
 /// `affirmative_votes` length equal to `AssentingVotesThreshold` will lock the account
-pub struct Vote<T: Config> {
+pub struct LockReferendum<T: Config> {
+    nominator: T::AccountId,
     /// the account that is being voted on.
     proposed_account: T::AccountId,
     /// the index at which the proposal was made. this will determine when the vote will start.
@@ -41,4 +50,21 @@ pub struct Vote<T: Config> {
     assenting_voters: Vec<T::AccountId>,
     /// accounts voting AGAINST a proposal
     dissenting_voters: Vec<T::AccountId>,
+}
+
+#[derive(
+    PartialEqNoBound,
+    EqNoBound,
+    CloneNoBound,
+    Encode,
+    Decode,
+    RuntimeDebugNoBound,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub enum VoteResult {
+    Passed,
+    Rejected,
+    /// (for, against)
+    TimedOut(u32, u32),
 }

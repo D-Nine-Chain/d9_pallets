@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-rewards"
-version = "1.1.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1791,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-voting"
-version = "0.2.0"
+version = "1.2.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-referral"
-version = "0.1.0-dev"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -1839,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-treasury"
-version = "0.1.0-dev"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
