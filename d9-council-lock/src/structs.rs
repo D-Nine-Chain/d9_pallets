@@ -40,9 +40,42 @@ pub struct LockReferendum<T: Config> {
     /// the index at which the proposal was made. this will determine when the vote will start.
     index_of_proposal: SessionIndex,
     /// accounts that voted FOR a proposal
-    assenting_voters: BoundedVec<T::AccountId, T::AssentingVotesThreshold>,
+    pub assenting_voters: BoundedVec<T::AccountId, T::AssentingVotesThreshold>,
     /// accounts voting AGAINST a proposal
-    dissenting_voters: BoundedVec<T::AccountId, T::DissentingVotesThreshold>,
+    pub dissenting_voters: BoundedVec<T::AccountId, T::DissentingVotesThreshold>,
+}
+
+impl<T: Config> LockReferendum<T> {
+    pub fn new(proposal: LockProposal<T>) -> Self {
+        LockReferendum {
+            nominator: proposal.nominator,
+            proposed_account: proposal.proposed_account,
+            index_of_proposal: proposal.session_index,
+            assenting_voters: BoundedVec::new(),
+            dissenting_voters: BoundedVec::new(),
+        }
+    }
+
+    pub fn add_vote(&mut self, voter: T::AccountId, decision: bool) {
+        if decision {
+            self.assenting_voters.push(voter);
+        } else {
+            self.dissenting_voters.push(voter);
+        }
+    }
+
+    pub fn get_result(&self) -> VoteResult {
+        if self.assenting_voters.len() >= T::AssentingVotesThreshold::get() as usize {
+            VoteResult::Passed
+        } else if self.dissenting_voters.len() >= T::DissentingVotesThreshold::get() as usize {
+            VoteResult::Rejected
+        } else {
+            VoteResult::Inconclusive(
+                self.assenting_voters.len() as u32,
+                self.dissenting_voters.len() as u32,
+            )
+        }
+    }
 }
 
 #[derive(
@@ -51,8 +84,8 @@ pub struct LockReferendum<T: Config> {
 pub enum VoteResult {
     Passed,
     Rejected,
-    /// (for, against)
-    TimedOut(u32, u32),
+    /// (for, agaisnt)
+    Inconclusive(u32, u32),
 }
 
 #[derive(

@@ -47,6 +47,8 @@ pub mod pallet {
         type MaxValidatorNodes: Get<u32>;
 
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
+
+        type CouncilVoteManager: CouncilVoteManager;
     }
 
     /// defines the voting power of a user
@@ -678,6 +680,7 @@ pub mod pallet {
 
         fn start_session(start_index: SessionIndex) {
             let _ = CurrentSessionIndex::<T>::put(start_index);
+            let _ = T::CouncilVoteManager::start_pending_votes(start_index);
             let sorted_candidates_opt = Self::get_sorted_candidates();
             if sorted_candidates_opt.is_none() {
                 return;
@@ -729,6 +732,7 @@ pub mod pallet {
                 );
             }
         }
+
         fn end_session(end_index: SessionIndex) {
             let _ = CurrentValidatorVoteStats::<T>::drain();
             let sorted_nodes_with_votes = Self::get_sorted_candidates_with_votes();
@@ -740,6 +744,7 @@ pub mod pallet {
             // }
 
             let _ = T::NodeRewardManager::update_rewards(end_index, sorted_nodes_with_votes);
+            let _ = T::CouncilVoteManager::end_active_votes(end_index);
         }
     }
 }
