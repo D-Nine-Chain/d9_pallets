@@ -1,6 +1,4 @@
 use crate::pallet::Config;
-use crate::pallet::Pallet;
-use crate::BalanceOf;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
@@ -56,12 +54,13 @@ impl<T: Config> LockReferendum<T> {
         }
     }
 
-    pub fn add_vote(&mut self, voter: T::AccountId, decision: bool) {
+    pub fn add_vote(&mut self, voter: T::AccountId, decision: bool) -> VoteResult {
         if decision {
-            self.assenting_voters.push(voter);
+            let _ = self.assenting_voters.try_push(voter);
         } else {
-            self.dissenting_voters.push(voter);
+            let _ = self.dissenting_voters.try_push(voter);
         }
+        self.get_result()
     }
 
     pub fn get_result(&self) -> VoteResult {

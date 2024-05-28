@@ -1,9 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use sp_staking::SessionIndex;
-use sp_std::prelude::*;
 mod structs;
 use frame_support::{
-    traits::{Currency, LockableCurrency},
+    traits::{Currency, LockableCurrency, WithdrawReasons},
     PalletId,
 };
 pub use pallet::*;
@@ -13,20 +12,17 @@ pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 #[frame_support::pallet]
 pub mod pallet {
+
     use super::*;
-    use codec::{Codec, MaxEncodedLen};
     use frame_support::{
         inherent::Vec,
-        pallet,
         pallet_prelude::{DispatchResult, OptionQuery, StorageMap, ValueQuery, *},
         traits::ExistenceRequirement,
-        weights::Weight,
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
-
     use sp_runtime::traits::AccountIdConversion;
-    use sp_runtime::traits::{AtLeast32BitUnsigned, BadOrigin};
+    use sp_runtime::traits::BadOrigin;
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
         frame_support::traits::StorageVersion::new(1);
 
@@ -36,6 +32,8 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + scale_info::TypeInfo {
+        type LockIdentifier: Get<[u8; 8]>;
+        type LockAmount: Get<BalanceOf<Self>>;
         type Currency: Currency<Self::AccountId>;
         type LockableCurrency: LockableCurrency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -75,7 +73,7 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, T::AccountId, LockProposal<T>, OptionQuery>;
 
     #[pallet::storage]
-    #[pallet::getter(fn active_lock_referendums)]
+    #[pallet::getter(fn lock_referendums)]
     pub type LockReferendums<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, LockReferendum<T>, OptionQuery>;
 
@@ -105,8 +103,6 @@ pub mod pallet {
         AccountNominatedForUnlock(T::AccountId),
         VoteStarted,
         VoteEnded(VoteResult),
-        ProposalPassed,
-        ProposalRejected,
     }
 
     #[pallet::error]
@@ -154,17 +150,17 @@ pub mod pallet {
             proposal_fee: BalanceOf<T>,
         ) -> DispatchResult {
             let nominator = ensure_signed(origin)?;
-            let _ = Self::check_action_eligibility(nominator)?;
+            let _ = Self::check_action_eligibility(nominator.clone())?;
             let _ = Self::check_nominator(nominator.clone())?;
             if let Some(admin) = PalletAdmin::<T>::get() {
                 if admin == account_to_lock {
-                    return Err(Error::AdminCannotBeNominated);
+                    return Err(Error::<T>::AdminCannotBeNominated.into());
                 }
             }
             let _ = Self::check_fee(proposal_fee)?;
             let contract_address_option = MiningPoolContract::<T>::get();
             if contract_address_option.is_none() {
-                return Err(Error::MiningPoolContractNotSet);
+                return Err(Error::<T>::MiningPoolContractNotSet.into());
             }
             let mining_pool = contract_address_option.unwrap();
             let _ = Self::transfer_funds(nominator.clone(), mining_pool, proposal_fee)?;
@@ -181,16 +177,18 @@ pub mod pallet {
             lock_decision: bool,
         ) -> DispatchResult {
             let voter = ensure_signed(origin)?;
-            let referendum_option = LockReferendums::<T>::get(lock_candidate);
+            let referendum_option = LockReferendums::<T>::get(lock_candidate.clone());
             if referendum_option.is_none() {
-                return Err(Error::ReferendumDoesNotExist);
+                return Err(Error::<T>::ReferendumDoesNotExist.into());
             }
             let _ = Self::check_voter(voter.clone())?;
-            let mut referendum = referendum_option.unwrap();
-            referendum.add_vote(voter, lock_decision);
-            //TODO - check if the vote has passed or failed then remove referendum and execute the action
-            LockReferendums::<T>::insert(lock_candidate, referendum);
-            Ok(())
+            let referendum = referendum_option.unwrap();
+
+            let result = Self::process_vote(lock_candidate.clone(), lock_decision, referendum);
+            match result {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.into()),
+            }
         }
     }
 
@@ -218,31 +216,31 @@ pub mod pallet {
 
         /// validate origin is permitted to nominate
         fn check_nominator(account_id: T::AccountId) -> Result<(), Error<T>> {
-            let _ = Self::check_action_eligibility(account_id)?;
+            let _ = Self::check_action_eligibility(account_id.clone())?;
             let ranked_nodes = Self::get_ranked_nodes()?;
             if let Some(index) = ranked_nodes.iter().position(|x| x == &account_id) {
                 if index < T::MinNominatorRank::get() as usize {
                     return Ok(());
                 }
             }
-            return Err(Error::NotValidNominator);
+            return Err(Error::<T>::NotValidNominator);
         }
 
-        fn check_voter(account_id: &T::AccountId) -> Result<(), Error<T>> {
-            let _ = Self::check_action_eligibility(account_id)?;
+        fn check_voter(account_id: T::AccountId) -> Result<(), Error<T>> {
+            let _ = Self::check_action_eligibility(account_id.clone())?;
             let _ = Self::check_is_council_member(account_id)?;
             Ok(())
         }
 
         /// is caller permitted to nominate or vote
         fn check_action_eligibility(account_id: T::AccountId) -> Result<(), Error<T>> {
-            let lock_proposal_option = LockProposals::<T>::get(account_id);
-            if lock_proposal_option.is_some() {
-                return Err(Error::LockCandidatesNotPermittedToInteract);
-            }
+            // let lock_proposal_option = LockProposals::<T>::get(account_id);
+            // if lock_proposal_option.is_some() {
+            //     return Err(Error::LockCandidatesNotPermittedToInteract);
+            // }
             let locked_account_option = LockedAccounts::<T>::get(account_id);
             if locked_account_option.is_some() {
-                return Err(Error::LockedAccountsNotPermittedToInteract);
+                return Err(Error::<T>::LockedAccountsNotPermittedToInteract);
             }
             Ok(())
         }
@@ -255,13 +253,13 @@ pub mod pallet {
                     return Ok(());
                 }
             }
-            return Err(Error::NotValidCouncilMember);
+            return Err(Error::<T>::NotValidCouncilMember);
         }
 
         fn get_ranked_nodes() -> Result<Vec<T::AccountId>, Error<T>> {
             let ranked_nodes_option = T::SessionDataProvider::get_sorted_candidates();
             if ranked_nodes_option.is_none() {
-                return Err(Error::ErrorGettingRankedNodes);
+                return Err(Error::<T>::ErrorGettingRankedNodes);
             }
             Ok(ranked_nodes_option.unwrap())
         }
@@ -269,21 +267,73 @@ pub mod pallet {
         fn check_fee(amount_sent: BalanceOf<T>) -> Result<(), Error<T>> {
             let proposal_fee = ProposalFee::<T>::get();
             if amount_sent < proposal_fee {
-                return Err(Error::ProposalFeeInsufficient);
+                return Err(Error::<T>::ProposalFeeInsufficient);
             }
             Ok(())
+        }
+
+        fn process_vote(
+            account_id: T::AccountId,
+            decision: bool,
+            mut referendum: LockReferendum<T>,
+        ) -> Result<VoteResult, Error<T>> {
+            let vote_result = referendum.add_vote(account_id.clone(), decision);
+            match vote_result {
+                VoteResult::Passed => {
+                    Self::deposit_event(Event::AccountLocked(account_id.clone()));
+                    Self::deposit_event(Event::VoteEnded(VoteResult::Passed));
+                    let session_index = T::SessionDataProvider::current_session_index();
+                    ConcludedLockVotes::<T>::insert(
+                        (session_index, account_id.clone()),
+                        referendum,
+                    );
+                    LockReferendums::<T>::remove(account_id.clone());
+                    Self::lock_account(account_id.clone())?;
+                }
+                VoteResult::Rejected => {
+                    Self::deposit_event(Event::VoteEnded(VoteResult::Rejected));
+                    ConcludedLockVotes::<T>::insert(
+                        (
+                            T::SessionDataProvider::current_session_index(),
+                            account_id.clone(),
+                        ),
+                        referendum,
+                    );
+                    LockReferendums::<T>::remove(account_id.clone());
+                }
+                _ => {
+                    LockReferendums::<T>::insert(account_id.clone(), referendum);
+                }
+            }
+            Ok(vote_result)
         }
 
         fn is_account_lockable(account_id: T::AccountId) -> Result<(), Error<T>> {
             let existing_proposal = LockProposals::<T>::get(account_id.clone());
             if existing_proposal.is_some() {
-                return Err(Error::ProposalAlreadyExists);
+                return Err(Error::<T>::ProposalAlreadyExists);
             }
             let locked_account = LockedAccounts::<T>::get(account_id);
             if locked_account.is_some() {
-                return Err(Error::AccountAlreadyLocked);
+                return Err(Error::<T>::AccountAlreadyLocked);
             }
             return Ok(());
+        }
+
+        fn lock_account(account_id: T::AccountId) -> Result<(), Error<T>> {
+            //TODO - do lock
+            T::LockableCurrency::set_lock(
+                T::LockIdentifier::get(),
+                &account_id,
+                T::LockableCurrency::total_issuance(),
+                WithdrawReasons::all(),
+            );
+            Ok(())
+        }
+
+        fn unlock_account(account_id: T::AccountId) -> Result<(), Error<T>> {
+            T::LockableCurrency::remove_lock(T::LockIdentifier::get(), &account_id);
+            Ok(())
         }
 
         fn transfer_funds(
@@ -297,7 +347,6 @@ pub mod pallet {
         fn _propose_lock(
             account_to_lock: T::AccountId,
             nominator: T::AccountId,
-            proposal_fee: BalanceOf<T>,
         ) -> Result<(), Error<T>> {
             let proposal = LockProposal {
                 proposed_account: account_to_lock.clone(),
@@ -311,12 +360,12 @@ pub mod pallet {
 
         fn start_pending_votes(current_session_index: SessionIndex) -> () {
             let vote_start_threshold_session =
-                current_session_index - NumberOfSessionsBeforeVote::get();
+                current_session_index - T::NumberOfSessionsBeforeVote::get();
             let lock_proposals = LockProposals::<T>::iter().collect::<Vec<_>>();
             for (account_id, proposal) in lock_proposals {
                 if proposal.session_index <= vote_start_threshold_session {
                     let referendum = LockReferendum::<T>::new(proposal);
-                    LockReferendums::<T>::insert(account_id, referendum);
+                    LockReferendums::<T>::insert(account_id.clone(), referendum);
                     LockProposals::<T>::remove(account_id);
                 }
             }
@@ -324,7 +373,7 @@ pub mod pallet {
 
         fn end_active_votes(previous_session_index: SessionIndex) -> () {
             let lock_referendums = LockReferendums::<T>::iter().collect::<Vec<_>>();
-            for (account_id, referendum) in lock_referendums {
+            for (_, referendum) in lock_referendums {
                 let assenting_votes = referendum.assenting_voters.len() as u32;
                 let dissenting_votes = referendum.dissenting_voters.len() as u32;
                 Self::deposit_event(Event::VoteEnded(VoteResult::Inconclusive(
