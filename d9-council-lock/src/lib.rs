@@ -119,6 +119,7 @@ pub mod pallet {
         LockedAccountCannotVote,
         ReferendumDoesNotExist,
         NotValidCouncilMember,
+        ErrorCalculatingVotes,
     }
 
     #[pallet::call]
@@ -171,7 +172,7 @@ pub mod pallet {
                 proposed_account: account_to_unlock.clone(),
                 session_index: T::SessionDataProvider::current_session_index(),
                 nominator: nominator.clone(),
-                change_to: AccountLockState::Locked,
+                change_to: AccountLockState::Unlocked,
             };
             Self::process_lock_decision_proposal(unlock_proposal, proposal_fee)
         }
@@ -181,7 +182,7 @@ pub mod pallet {
         pub fn vote_on_proposal(
             origin: OriginFor<T>,
             lock_candidate: T::AccountId,
-            lock_decision: bool,
+            assent_on_decision: bool,
         ) -> DispatchResult {
             let voter = ensure_signed(origin)?;
             let referendum_option = LockReferendums::<T>::get(lock_candidate.clone());
@@ -191,7 +192,7 @@ pub mod pallet {
             let _ = Self::check_voter(voter.clone())?;
             let referendum = referendum_option.unwrap();
 
-            let result = Self::process_vote(lock_candidate.clone(), lock_decision, referendum);
+            let result = Self::process_vote(lock_candidate.clone(), assent_on_decision, referendum);
             match result {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.into()),
@@ -325,7 +326,11 @@ pub mod pallet {
             decision: bool,
             mut referendum: LockReferendum<T>,
         ) -> Result<VoteResult, Error<T>> {
-            let vote_result = referendum.add_vote(account_id.clone(), decision);
+            let add_vote_result = referendum.add_vote(account_id.clone(), decision);
+            if add_vote_result.is_err() {
+                return Err(Error::ErrorCalculatingVotes);
+            }
+            let vote_result = add_vote_result.unwrap();
             if vote_result == VoteResult::Passed || vote_result == VoteResult::Rejected {
                 Self::deposit_event(Event::VoteEnded(vote_result.clone()));
                 Self::execute_referendum(&referendum)?;

@@ -74,13 +74,17 @@ impl<T: Config> LockReferendum<T> {
         }
     }
 
-    pub fn add_vote(&mut self, voter: T::AccountId, decision: bool) -> VoteResult {
-        if decision {
-            let _ = self.assenting_voters.try_push(voter);
+    pub fn add_vote(
+        &mut self,
+        voter: T::AccountId,
+        assent_on_proposal: bool,
+    ) -> Result<VoteResult, T::AccountId> {
+        if assent_on_proposal {
+            let _ = self.assenting_voters.try_push(voter)?;
         } else {
-            let _ = self.dissenting_voters.try_push(voter);
+            let _ = self.dissenting_voters.try_push(voter)?;
         }
-        self.get_result()
+        Ok(self.get_result())
     }
 
     pub fn get_result(&self) -> VoteResult {
