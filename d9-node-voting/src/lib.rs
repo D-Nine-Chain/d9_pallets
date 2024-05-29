@@ -736,12 +736,6 @@ pub mod pallet {
         fn end_session(end_index: SessionIndex) {
             let _ = CurrentValidatorVoteStats::<T>::drain();
             let sorted_nodes_with_votes = Self::get_sorted_candidates_with_votes();
-            // match sorted_node_list_opt {
-            //     Some(sorted_node_list) => {
-            //         let _ = T::NodeRewardManager::update_rewards(end_index, sorted_node_list);
-            //     }
-            //     None => {}
-            // }
 
             let _ = T::NodeRewardManager::update_rewards(end_index, sorted_nodes_with_votes);
             let _ = T::CouncilVoteManager::end_active_votes(end_index);

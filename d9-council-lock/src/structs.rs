@@ -14,29 +14,48 @@ use sp_staking::SessionIndex;
     TypeInfo,
     MaxEncodedLen,
 )]
-pub struct LockProposal<T: Config> {
+pub struct LockDecisionProposal<T: Config> {
     /// the account that is being voted on.
     pub proposed_account: T::AccountId,
     /// the index at which the proposal was made. this will determine when the vote will start.
     pub session_index: SessionIndex,
     /// who nominated this account
     pub nominator: T::AccountId,
+    /// request to change account to this state
+    pub change_to: AccountLockState,
+}
+#[derive(
+    PartialEqNoBound,
+    EqNoBound,
+    Encode,
+    Decode,
+    RuntimeDebugNoBound,
+    TypeInfo,
+    MaxEncodedLen,
+    PartialOrd,
+    Ord,
+    Clone,
+)]
+pub enum AccountLockState {
+    Locked,
+    Unlocked,
 }
 
-#[derive(
-    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
-)]
 /// the vote that will determine the lock status of an account
 ///
 /// `affirmative_votes` length equal to `AssentingVotesThreshold` will lock the account]
+#[derive(
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
+)]
 #[scale_info(skip_type_params(T))]
-
 pub struct LockReferendum<T: Config> {
-    nominator: T::AccountId,
+    pub nominator: T::AccountId,
     /// the account that is being voted on.
-    proposed_account: T::AccountId,
+    pub proposed_account: T::AccountId,
     /// the index at which the proposal was made. this will determine when the vote will start.
-    index_of_proposal: SessionIndex,
+    pub index_of_proposal: SessionIndex,
+    /// proposed state to change account to
+    pub change_to: AccountLockState,
     /// accounts that voted FOR a proposal
     pub assenting_voters: BoundedVec<T::AccountId, T::AssentingVotesThreshold>,
     /// accounts voting AGAINST a proposal
@@ -44,13 +63,14 @@ pub struct LockReferendum<T: Config> {
 }
 
 impl<T: Config> LockReferendum<T> {
-    pub fn new(proposal: LockProposal<T>) -> Self {
+    pub fn new(proposal: LockDecisionProposal<T>) -> Self {
         LockReferendum {
             nominator: proposal.nominator,
             proposed_account: proposal.proposed_account,
             index_of_proposal: proposal.session_index,
             assenting_voters: BoundedVec::new(),
             dissenting_voters: BoundedVec::new(),
+            change_to: proposal.change_to,
         }
     }
 
@@ -92,11 +112,11 @@ pub enum VoteResult {
 )]
 pub struct AccountLock<T: Config> {
     /// the account that is being locked
-    account: T::AccountId,
+    pub account: T::AccountId,
     /// the account that locked the account
-    nominator: T::AccountId,
+    pub nominator: T::AccountId,
     /// the index at which the account was locked
-    lock_index: SessionIndex,
+    pub lock_index: SessionIndex,
 }
 
 pub trait D9SessionDataProvider<AccountId> {
