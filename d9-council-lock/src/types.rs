@@ -1,7 +1,7 @@
 use crate::pallet::Config;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
+use frame_support::{pallet_prelude::*, BoundedVec};
 use sp_staking::SessionIndex;
 
 #[derive(
@@ -121,9 +121,4 @@ pub struct AccountLock<T: Config> {
     pub nominator: T::AccountId,
     /// the index at which the account was locked
     pub lock_index: SessionIndex,
-}
-
-pub trait D9SessionDataProvider<AccountId> {
-    fn get_sorted_candidates() -> Option<Vec<AccountId>>;
-    fn current_session_index() -> SessionIndex;
 }

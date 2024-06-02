@@ -1,13 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use sp_staking::SessionIndex;
-mod structs;
+mod types;
 use frame_support::{
     traits::{Currency, LockableCurrency, WithdrawReasons},
     PalletId,
 };
 pub use pallet::*;
 
-pub use structs::*;
+pub use types::*;
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 #[frame_support::pallet]
@@ -21,11 +21,10 @@ pub mod pallet {
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
-    use pallet_d9_node_voting::CouncilVoteManager;
+    use pallet_d9_node_voting::CouncilSessionManager;
     use sp_runtime::traits::BadOrigin;
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
         frame_support::traits::StorageVersion::new(1);
-
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
@@ -48,8 +47,8 @@ pub mod pallet {
         type NumberOfSessionsBeforeVote: Get<u32>;
         // minimum votes to REJECT an account block
         type DissentingVotesThreshold: Get<u32>;
-        // something to get index and candidate list
-        type SessionDataProvider: D9SessionDataProvider<Self::AccountId>;
+        // prepares votes: gets valid nominators/voters turns proposal into votes
+        type CouncilSessionManager: CouncilSessionManager<Self::AccountId>;
     }
     //NOTE - if these values are to be changed then let it be done by a seperate pallet that will hav
 
@@ -153,7 +152,7 @@ pub mod pallet {
             let nominator = ensure_signed(origin)?;
             let lock_proposal = LockDecisionProposal {
                 proposed_account: account_to_lock.clone(),
-                session_index: T::SessionDataProvider::current_session_index(),
+                session_index: T::CouncilSessionManager::current_session_index(),
                 nominator: nominator.clone(),
                 change_to: AccountLockState::Locked,
             };
@@ -170,7 +169,7 @@ pub mod pallet {
             let nominator = ensure_signed(origin)?;
             let unlock_proposal = LockDecisionProposal {
                 proposed_account: account_to_unlock.clone(),
-                session_index: T::SessionDataProvider::current_session_index(),
+                session_index: T::CouncilSessionManager::current_session_index(),
                 nominator: nominator.clone(),
                 change_to: AccountLockState::Unlocked,
             };
@@ -314,7 +313,7 @@ pub mod pallet {
             );
         }
         fn get_ranked_nodes() -> Result<Vec<T::AccountId>, Error<T>> {
-            let ranked_nodes_option = T::SessionDataProvider::get_sorted_candidates();
+            let ranked_nodes_option = T::CouncilSessionManager::get_ranked_nodes();
             if ranked_nodes_option.is_none() {
                 return Err(Error::<T>::ErrorGettingRankedNodes);
             }
@@ -336,7 +335,7 @@ pub mod pallet {
                 Self::execute_referendum(&referendum)?;
                 ConcludedLockReferendums::<T>::insert(
                     (
-                        T::SessionDataProvider::current_session_index(),
+                        T::CouncilSessionManager::current_session_index(),
                         account_id.clone(),
                     ),
                     referendum,
@@ -357,7 +356,7 @@ pub mod pallet {
                         AccountLock {
                             account: referendum.proposed_account.clone(),
                             nominator: referendum.nominator.clone(),
-                            lock_index: T::SessionDataProvider::current_session_index(),
+                            lock_index: T::CouncilSessionManager::current_session_index(),
                         },
                     );
                     Self::lock_funds(&referendum.proposed_account);
@@ -450,14 +449,22 @@ pub mod pallet {
             }
         }
     }
-
-    impl<T: Config> CouncilVoteManager for Pallet<T> {
-        fn start_pending_votes(current_session_index: SessionIndex) -> () {
-            Self::start_pending_votes(current_session_index);
+    impl<T: Config> CouncilSessionManager<T::AccountId> for Pallet<T> {
+        fn start_pending_votes(session_index: SessionIndex) {
+            Self::start_pending_votes(session_index);
         }
-
-        fn end_active_votes(previous_session_index: SessionIndex) -> () {
-            Self::end_active_votes(previous_session_index);
+        fn end_active_votes(session_index: SessionIndex) {
+            Self::end_active_votes(session_index);
+        }
+        fn get_ranked_nodes() -> Option<Vec<T::AccountId>> {
+            let ranked_nodes_option = T::CouncilSessionManager::get_ranked_nodes();
+            if ranked_nodes_option.is_none() {
+                return None;
+            }
+            Some(ranked_nodes_option.unwrap())
+        }
+        fn current_session_index() -> SessionIndex {
+            T::CouncilSessionManager::current_session_index()
         }
     }
 }
