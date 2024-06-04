@@ -115,9 +115,7 @@ pub trait NodeRewardManager<AccountId> {
     fn update_rewards(end_index: SessionIndex, nodes_with_votes: Vec<(AccountId, u64)>) -> ();
 }
 
-pub trait CouncilSessionManager<AccountId> {
+pub trait ReferendumManager {
     fn start_pending_votes(session_index: SessionIndex);
     fn end_active_votes(session_index: SessionIndex);
-    fn get_ranked_nodes() -> Option<Vec<AccountId>>;
-    fn current_session_index() -> SessionIndex;
 }

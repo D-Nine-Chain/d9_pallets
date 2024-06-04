@@ -1,22 +1,27 @@
-#![cfg(test)]
 use super::*;
 use crate as pallet_council_vote;
-
-use sp_runtime::BuildStorage;
-
-type Block = frame_system::mocking::MockBlock<Test>;
-
+use frame_support::PalletId;
+use sp_runtime::{BuildStorage, MultiSignature};
+use sp_staking::{EraIndex, SessionIndex};
+pub type Block = frame_system::mocking::MockBlock<TestRuntime>;
+pub type BlockNumber = u32;
+pub type Signature = MultiSignature;
+pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+pub type Balance = u128;
+pub type Index = u32;
+pub type Hash = sp_core::H256;
 frame_support::construct_runtime!(
-    pub enum Test
+    pub enum TestRuntime
     {
-        System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
-        Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-        CouncilLock: pallet_d9_council_lock::{Pallet, Call, Event<T>},
-        Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
+        System: frame_system,
+        Balances: pallet_balances,
+        CouncilLock: pallet_d9_council_lock,
+        Session: pallet_session,
+        Voting: pallet_d9_voting,
     }
 );
 
-impl frame_system::Config for Test {
+impl frame_system::Config for TestRuntime {
     type BaseCallFilter = ();
     type BlockWeights = ();
     type BlockLength = ();
@@ -40,7 +45,7 @@ impl frame_system::Config for Test {
     type SystemWeightInfo = ();
 }
 
-impl pallet_balances::Config for Test {
+impl pallet_balances::Config for TestRuntime {
     type MaxLocks = ();
     type Balance = u64;
     type Event = Event;
@@ -51,16 +56,36 @@ impl pallet_balances::Config for Test {
     type MaxReserves = ();
     type ReserveIdentifier = [u8; 8];
 }
+struct RankingProvider<T: Config>(sp_std::marker::PhantomData<T>);
+//TODO - Implement the RankingProvider trait for the RankingProvider struct
+impl CouncilLock::RankingProvider<AccountId> for RankingProvider<TestRuntime> {
+    fn get_ranked_nodes() -> Option<Vec<AccountId>> {
+        Voting::get_sorted_candidates()
+    }
 
-impl Config for Test {}
-
-pub fn new_test_ext() -> sp_io::TestExternalities {
-    let mut t = frame_system::GenesisConfig::<Test>::default()
-        .build_storage()
-        .unwrap();
-    let genesis = pallet_balances::GenesisConfig::<Test> {
-        balances: vec![(A, 100), (B, 200)],
-    };
-    genesis.assimilate_storage(&mut t).unwrap();
-    t.into()
+    fn current_session_index() -> SessionIndex {
+        Session::current_index()
+    }
+}
+parameter_types! {
+    pub const LockIdentitfier:[u8;8] = *b"council/";
+    pub PalletId:PalletId = PalletId(*b"council/");
+    pub const VotingCouncilSize:u32 = 27;
+    pub const MinNominatorRank:u32 = 188;
+    pub const AssentingVotesThreshold:u32 = 19;
+    pub const DisssentingVotesThreshold:u32 = 10;
+    pub const NumberOfSessionsBeforeVote:u32 = 2;
+}
+impl Config for TestRuntime {
+    type LockIdentifier = LockIdentitfier;
+    type Currency = Balances;
+    type LockableCurrency = Balances;
+    type RuntimeEvent = RuntimeEvent;
+    type PalletId = PalletId;
+    type VotingCouncilSize = VotingCouncilSize;
+    type MinNominatorRank = MinNominatorRank;
+    type AssentingVotesThreshold = AssentingVotesThreshold;
+    type DisssentingVotesThreshold = DisssentingVotesThreshold;
+    type NumberOfSessionsBeforeVote = NumberOfSessionsBeforeVote;
+    type RankingProvider = RankingProvider<AccountId>;
 }

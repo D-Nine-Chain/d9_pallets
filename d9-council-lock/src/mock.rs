@@ -1,24 +1,37 @@
 #![cfg(test)]
 
+use super::*;
+use crate as council_lock;
 use sp_runtime::{
+    create_runtime_str, generic,
     traits::{BadOrigin, BlakeTwo256, Dispatchable, IdentityLookup},
     BuildStorage,
 };
-
-use super::*;
-use crate as council_lock;
+use sp_version::RuntimeVersion;
 pub type BlockNumber = u32;
 pub type Balance = u128;
 pub type AccountId = u64;
-pub type Hash = sp_core::H256;
-
+pub type Index = u32;
+pub type hash = sp_core::H256;
 use frame_support::{
     assert_err_ignore_postinfo, assert_noop, assert_ok, parameter_types,
     traits::{ConstU32, ConstU64, OnInitialize},
     PalletId,
 };
 type Block = frame_system::mocking::MockBlock<TestRuntime>;
-type CouncilCall = crate::Call<TestRuntime>;
+pub type CouncilCall = crate::Call<TestRuntime>;
+
+#[sp_version::runtime_version]
+pub const VERSION: RuntimeVersion = RuntimeVersion {
+    spec_name: create_runtime_str!("d9-test"),
+    impl_name: create_runtime_str!("d-test"),
+    authoring_version: 1,
+    spec_version: 1,
+    impl_version: 1,
+    apis: RUNTIME_API_VERSIONS,
+    transaction_version: 1,
+    state_version: 1,
+};
 
 frame_support::construct_runtime! {
   pub enum TestRuntime {
@@ -26,12 +39,28 @@ frame_support::construct_runtime! {
     Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
     CouncilLock : council_lock::{Pallet, Call, Storage, Config<T>,Event<T>},
     NodeVoting : d9_node_voting::{Pallet, Call, Storage, Config<T>, Event<T>},
+    Sessions: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
   }
 }
+
 impl_outer_origin! {
   pub enum Origin for Test where system = frame_system {}
 //TODO - need to implement a proper Origin
 }
+parameter_types! {
+    pub const BlockHashCount: BlockNumber = 2400;
+    pub const Version: RuntimeVersion = VERSION;
+    /// We allow for 2 seconds of compute with a 6 second average block time.
+    pub BlockWeights: frame_system::limits::BlockWeights =
+        frame_system::limits::BlockWeights::with_sensible_defaults(
+            Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+            NORMAL_DISPATCH_RATIO,
+        );
+    pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
+        ::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+    pub const SS58Prefix: u8 = 9;
+}
+
 impl frame_system::Config for TestRuntime {
     /// The basic call filter to use in dispatchable.
     type BaseCallFilter = frame_support::traits::Everything;
@@ -121,4 +150,18 @@ impl pallet_balances::Config for TestRuntime {
     type MaxFreezes = MaxFreezes;
     type HoldIdentifier = ();
     type ReferralManager = Self;
+}
+
+parameter_types! {
+    pub const CurrencySubUnits: u128 = 1_000_000_000_000;
+    pub const MaxCandidates: u32 = 288;
+    pub const MaxValidatorNodes: u32 = 27;
+}
+impl pallet_d9_node_voting::Config for Runtime {
+    type CurrencySubUnits = CurrencySubUnits;
+    type Currency = Balances;
+    type RuntimeEvent = RuntimeEvent;
+    type MaxCandidates = MaxCandidates;
+    type MaxValidatorNodes = MaxValidatorNodes;
+    type NodeRewardManager = D9NodeRewards;
 }

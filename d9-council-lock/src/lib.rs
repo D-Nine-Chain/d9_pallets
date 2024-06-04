@@ -21,7 +21,6 @@ pub mod pallet {
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
-    use pallet_d9_node_voting::CouncilSessionManager;
     use sp_runtime::traits::BadOrigin;
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
         frame_support::traits::StorageVersion::new(1);
@@ -48,9 +47,8 @@ pub mod pallet {
         // minimum votes to REJECT an account block
         type DissentingVotesThreshold: Get<u32>;
         // prepares votes: gets valid nominators/voters turns proposal into votes
-        type CouncilSessionManager: CouncilSessionManager<Self::AccountId>;
+        type RankingProvider: RankingProvider<Self::AccountId>;
     }
-    //NOTE - if these values are to be changed then let it be done by a seperate pallet that will hav
 
     #[pallet::storage]
     #[pallet::getter(fn pallet_admin)]

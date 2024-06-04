@@ -122,3 +122,8 @@ pub struct AccountLock<T: Config> {
     /// the index at which the account was locked
     pub lock_index: SessionIndex,
 }
+
+pub trait RankingProvider<AccountId> {
+    fn get_ranked_nodes() -> Option<Vec<AccountId>>;
+    fn current_session_index() -> SessionIndex;
+}

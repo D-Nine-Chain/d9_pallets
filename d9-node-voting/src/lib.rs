@@ -42,7 +42,7 @@ pub mod pallet {
         type MaxCandidates: Get<u32>;
         type MaxValidatorNodes: Get<u32>;
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
-        type CouncilSessionManager: CouncilSessionManager<Self::AccountId>;
+        type CouncilSessionManager: ReferendumManager;
     }
 
     /// defines the voting power of a user
