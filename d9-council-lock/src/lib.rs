@@ -6,7 +6,7 @@ use frame_support::{
     PalletId,
 };
 pub use pallet::*;
-
+use pallet_d9_node_voting::ReferendumManager;
 pub use types::*;
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -150,7 +150,7 @@ pub mod pallet {
             let nominator = ensure_signed(origin)?;
             let lock_proposal = LockDecisionProposal {
                 proposed_account: account_to_lock.clone(),
-                session_index: T::CouncilSessionManager::current_session_index(),
+                session_index: T::RankingProvider::current_session_index(),
                 nominator: nominator.clone(),
                 change_to: AccountLockState::Locked,
             };
@@ -167,7 +167,7 @@ pub mod pallet {
             let nominator = ensure_signed(origin)?;
             let unlock_proposal = LockDecisionProposal {
                 proposed_account: account_to_unlock.clone(),
-                session_index: T::CouncilSessionManager::current_session_index(),
+                session_index: T::RankingProvider::current_session_index(),
                 nominator: nominator.clone(),
                 change_to: AccountLockState::Unlocked,
             };
@@ -311,7 +311,7 @@ pub mod pallet {
             );
         }
         fn get_ranked_nodes() -> Result<Vec<T::AccountId>, Error<T>> {
-            let ranked_nodes_option = T::CouncilSessionManager::get_ranked_nodes();
+            let ranked_nodes_option = T::RankingProvider::get_ranked_nodes();
             if ranked_nodes_option.is_none() {
                 return Err(Error::<T>::ErrorGettingRankedNodes);
             }
@@ -333,7 +333,7 @@ pub mod pallet {
                 Self::execute_referendum(&referendum)?;
                 ConcludedLockReferendums::<T>::insert(
                     (
-                        T::CouncilSessionManager::current_session_index(),
+                        T::RankingProvider::current_session_index(),
                         account_id.clone(),
                     ),
                     referendum,
@@ -354,7 +354,7 @@ pub mod pallet {
                         AccountLock {
                             account: referendum.proposed_account.clone(),
                             nominator: referendum.nominator.clone(),
-                            lock_index: T::CouncilSessionManager::current_session_index(),
+                            lock_index: T::RankingProvider::current_session_index(),
                         },
                     );
                     Self::lock_funds(&referendum.proposed_account);
@@ -447,22 +447,12 @@ pub mod pallet {
             }
         }
     }
-    impl<T: Config> CouncilSessionManager<T::AccountId> for Pallet<T> {
+    impl<T:Config> ReferendumManager for Pallet<T> {
         fn start_pending_votes(session_index: SessionIndex) {
             Self::start_pending_votes(session_index);
         }
         fn end_active_votes(session_index: SessionIndex) {
             Self::end_active_votes(session_index);
-        }
-        fn get_ranked_nodes() -> Option<Vec<T::AccountId>> {
-            let ranked_nodes_option = T::CouncilSessionManager::get_ranked_nodes();
-            if ranked_nodes_option.is_none() {
-                return None;
-            }
-            Some(ranked_nodes_option.unwrap())
-        }
-        fn current_session_index() -> SessionIndex {
-            T::CouncilSessionManager::current_session_index()
         }
     }
 }

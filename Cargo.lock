@@ -1744,6 +1744,7 @@ dependencies = [
  "hex",
  "impl-trait-for-tuples",
  "pallet-balances",
+ "pallet-d9-node-rewards",
  "pallet-d9-node-voting",
  "pallet-session",
  "pallet-utility",
