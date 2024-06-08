@@ -1,159 +1,248 @@
 use super::*;
 use crate as pallet_council_vote;
-use frame_support::PalletId;
-use sp_runtime::{BuildStorage, MultiSignature};
-use sp_staking::{EraIndex, SessionIndex};
-pub type Block = frame_system::mocking::MockBlock<TestRuntime>;
+use frame_support::weights::constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND};
+use frame_support::{
+    derive_impl,
+    pallet_prelude::{Decode, Encode, PhantomData, RuntimeDebug},
+    parameter_types, PalletId,
+};
+use frame_system::mocking::{MockBlock, MockUncheckedExtrinsic};
+use sp_core::{ConstU32, ConstU8, H256};
+use sp_runtime::{
+    testing::Header,
+    traits::{BlakeTwo256, IdentityLookup},
+    BuildStorage,
+};
+use sp_staking::SessionIndex;
+pub type Block = MockBlock<TestRuntime>;
+pub type UncheckedExtrinsic = MockUncheckedExtrinsic<TestRuntime>;
 pub type BlockNumber = u32;
-pub type Signature = MultiSignature;
-// pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 pub type AccountId = u64;
 pub type Balance = u128;
 pub type Index = u32;
-pub type Hash = sp_core::H256;
+
 frame_support::construct_runtime!(
     pub enum TestRuntime
-    {
-        System: frame_system,
-        Balances: pallet_balances,
-        CouncilLock: pallet_d9_council_lock,
-        Session: pallet_session,
-        Voting: pallet_d9_node_voting,
-        Rewards:pallet_d9_node_rewards,
+    where
+  Block = Block,
+  NodeBlock = Block,
+  UncheckedExtrinsic = UncheckedExtrinsic
+  {
+        System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+        Balances: pallet_d9_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
+        CouncilLock: pallet_council_vote::{Pallet, Call, Storage,  Event<T>},
+        Referral: pallet_d9_referral::{Pallet, Call, Storage, Event<T>},
+        // // Session: pallet_session::{Pallet, Call, Storage, Config<T>, Event<T>},
+        // Voting: pallet_d9_node_voting::{Pallet, Call, Storage, Config<T>, Event<T>},
+        // Rewards: pallet_d9_node_rewards::{Pallet, Call, Storage, Event<T>},
     }
 );
 
+parameter_types! {
+    pub const BlockHashCount: BlockNumber = 2400;
+    /// We allow for 2 seconds of compute with a 6 second average block time.
+    pub const SS58Prefix: u8 = 9;
+}
+#[derive_impl(frame_system::config_preludes::TestDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for TestRuntime {
-    type BaseCallFilter = ();
-    type BlockWeights = ();
-    type BlockLength = ();
-    type DbWeight = ();
-    type Origin = Origin;
-    type Index = u64;
-    type Call = Call;
-    type BlockNumber = u64;
-    type Hash = sp_core::H256;
-    type Hashing = sp_runtime::traits::BlakeTwo256;
-    type AccountId = u64;
-    type Lookup = sp_std::vec::Vec<u8>;
-    type Header = sp_runtime::testing::Header;
-    type Event = Event;
-    type BlockHashCount = ();
-    type Version = ();
-    type PalletInfo = PalletInfo;
-    type AccountData = pallet_balances::AccountData<u64>;
-    type OnNewAccount = ();
-    type OnKilledAccount = ();
-    type SystemWeightInfo = ();
+    type Block = Block;
+    type AccountData = pallet_d9_balances::AccountData<Balance>;
+    type AccountId = AccountId;
+    type Lookup = IdentityLookup<Self::AccountId>;
 }
 
-impl pallet_balances::Config for TestRuntime {
-    type MaxLocks = ();
-    type Balance = u64;
-    type Event = Event;
+// Configure FRAME pallets to include in runtime.
+// impl frame_system::Config for TestRuntime {
+//     /// The basic call filter to use in dispatchable.
+//     type BaseCallFilter = frame_support::traits::Everything;
+//     /// Block & extrinsics weights: base values and limits.
+//     type BlockWeights = ();
+//     /// The maximum length of a block (in bytes).
+//     type BlockLength = ();
+//     /// The identifier used to distinguish between accounts.
+//     type AccountId = AccountId;
+//     /// The aggregated dispatch type that is available for extrinsics.
+//     type RuntimeCall = RuntimeCall;
+//     /// The lookup mechanism to get account ID from whatever is passed in dispatchers.
+//     type Lookup = IdentityLookup<Self::AccountId>;
+//     /// The index type for storing how many extrinsics an account has signed.
+//     type Index = Index;
+//     /// The index type for blocks.
+//     type BlockNumber = BlockNumber;
+//     /// The type for hashing blocks and tries.
+//     type Hash = H256;
+//     /// The hashing algorithm used.
+//     type Hashing = BlakeTwo256;
+//     /// The header type.
+//     type Header = Header;
+//     /// The ubiquitous event type.
+//     type RuntimeEvent = RuntimeEvent;
+//     /// The ubiquitous origin type.
+//     type RuntimeOrigin = RuntimeOrigin;
+//     /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
+//     type BlockHashCount = BlockHashCount;
+//     /// The weight of database operations that the runtime can invoke.
+//     type DbWeight = RocksDbWeight;
+//     /// Version of the runtime.
+//     type Version = ();
+//     /// Converts a module to the index of the module in `construct_runtime!`.
+//     ///
+//     /// This type is being generated by `construct_runtime!`.
+//     type PalletInfo = PalletInfo;
+//     /// What to do if a new account is created.
+//     type OnNewAccount = ();
+//     /// What to do if an account is fully reaped from the system.
+//     type OnKilledAccount = ();
+//     /// The data to be stored in an account.
+//     type AccountData = pallet_d9_balances::AccountData<Balance>;
+//     /// Weight information for the extrinsics of this pallet.
+//     type SystemWeightInfo = ();
+//     /// This is used as an identifier of the chain. 42 is the generic substrate prefix.
+//     type SS58Prefix = SS58Prefix;
+//     /// The set code logic, just the default since we're not a parachain.
+//     type OnSetCode = ();
+//     type MaxConsumers = ConstU32<16>;
+// }
+
+impl pallet_d9_balances::ReferralManager<TestRuntime, ()> for TestRuntime {
+    fn get_parent(account: &AccountId) -> Option<AccountId> {
+        pallet_d9_referral::Pallet::<TestRuntime>::get_parent(account)
+    }
+
+    fn create_referral_relationship(parent: &AccountId, child: &AccountId) {
+        let _ =
+            pallet_d9_referral::Pallet::<TestRuntime>::create_referral_relationship(parent, child);
+    }
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Default, RuntimeDebug)]
+pub struct SomeIdentifier(pub [u8; 4]);
+parameter_types! {
+    pub const MaxLocks: u32 = 50;
+    pub const ExistentialDeposit: u128 = 1_000;
+    pub const ReserveIdentifier: SomeIdentifier = SomeIdentifier(*b"rsrv");
+    pub const FreezeIdentifier: SomeIdentifier = SomeIdentifier(*b"frze");
+    pub const MaxHolds: u32 = 50;
+    pub const MaxReserves: u32 = 50;
+    pub const MaxFreezes: u32 = 50;
+    pub const HoldIdentifier: SomeIdentifier = SomeIdentifier(*b"hold");
+}
+
+impl pallet_d9_balances::Config for TestRuntime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_d9_balances::weights::SubstrateWeight<TestRuntime>;
+    type Balance = Balance;
     type DustRemoval = ();
-    type ExistentialDeposit = ();
+    type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
-    type WeightInfo = ();
-    type MaxReserves = ();
-    type ReserveIdentifier = [u8; 8];
-}
-
-parameter_types! {
-    pub const CurrencySubUnits:u32 = 12;
-    pub const PalletId:PalletId = PalletId(*b"node/rwd");
-}
-impl pallet_d9_node_rewards::Config for TestRuntime {
-    type CurrencySubUnits = CurrencySubUnits;
-    type PalletId = PalletId;
-    type Currency = Balances;
-    type RuntimeEvent = RuntimeEvent;
-}
-struct CouncilSessionManager<T: Config>(sp_std::marker::PhantomData<T>);
-impl<T: Config> CouncilSessionManager<AccountId> for CouncilSessionManager<TestRuntime> {
-    fn start_pending_votes(session_index: SessionIndex) {
-        Self::start_pending_votes(session_index);
-    }
-    fn end_active_votes(session_index: SessionIndex) {
-        Self::end_active_votes(session_index);
-    }
-    fn get_ranked_nodes() -> Option<Vec<T::AccountId>> {
-        let ranked_nodes_option = T::CouncilSessionManager::get_ranked_nodes();
-        if ranked_nodes_option.is_none() {
-            return None;
-        }
-        Some(ranked_nodes_option.unwrap())
-    }
-    fn current_session_index() -> SessionIndex {
-        T::CouncilSessionManager::current_session_index()
-    }
+    type ReserveIdentifier = ();
+    type FreezeIdentifier = ();
+    type MaxLocks = MaxLocks;
+    type MaxHolds = MaxHolds;
+    type MaxReserves = MaxReserves;
+    type MaxFreezes = MaxFreezes;
+    type HoldIdentifier = ();
+    type ReferralManager = Self;
 }
 parameter_types! {
-    pub const CurrencySubUnits:u32 = 12;
-    pub const MaxCandidates:u32 = 288;
-    pub const MaxValidatorNodes = 27;
+    pub const MaxReferralDepth: u32 = 19;
 }
-impl pallet_d9_node_voting::Config for TestRuntime {
-    type CurrencySubUnits = CurrencySubUnits;
-    type Currency = Balances;
+impl pallet_d9_referral::Config for TestRuntime {
     type RuntimeEvent = RuntimeEvent;
-    type MaxCandidates = MaxCandidates;
-    type MaxValidatorNodes = MaxValidatorNodes;
-    type NodeRewardManager = Rewards;
+    type MaxReferralDepth = MaxReferralDepth;
+    type SetMaxReferralDepthOrigin = ();
 }
+// parameter_types! {
+//     pub const CurrencySubUnits: u32 = 12;
+//     pub const NodeRewardPalletId: PalletId = PalletId(*b"nde/rwrd");
+// }
 
-struct RankingProvider<T: Config>(sp_std::marker::PhantomData<T>);
-//TODO - Implement the RankingProvider trait for the RankingProvider struct
-impl CouncilLock::RankingProvider<AccountId> for RankingProvider<TestRuntime> {
-    fn get_ranked_nodes() -> Option<Vec<AccountId>> {
-        Voting::get_sorted_candidates()
-    }
+// impl pallet_d9_node_rewards::Config for TestRuntime {
+//     type CurrencySubUnits = CurrencySubUnits;
+//     type PalletId = NodeRewardPalletId;
+//     type Currency = Balances;
+//     type RuntimeEvent = RuntimeEvent;
+// }
 
-    fn current_session_index() -> SessionIndex {
-        Session::current_index()
-    }
-}
-parameter_types! {
-    pub const LockIdentitfier:[u8;8] = *b"council/";
-    pub PalletId:PalletId = PalletId(*b"council/");
-    pub const VotingCouncilSize:u32 = 27;
-    pub const MinNominatorRank:u32 = 188;
-    pub const AssentingVotesThreshold:u32 = 19;
-    pub const DisssentingVotesThreshold:u32 = 10;
-    pub const NumberOfSessionsBeforeVote:u32 = 2;
-}
-impl Config for TestRuntime {
-    type LockIdentifier = LockIdentitfier;
-    type Currency = Balances;
-    type LockableCurrency = Balances;
-    type RuntimeEvent = RuntimeEvent;
-    type PalletId = PalletId;
-    type VotingCouncilSize = VotingCouncilSize;
-    type MinNominatorRank = MinNominatorRank;
-    type AssentingVotesThreshold = AssentingVotesThreshold;
-    type DisssentingVotesThreshold = DisssentingVotesThreshold;
-    type NumberOfSessionsBeforeVote = NumberOfSessionsBeforeVote;
-    type RankingProvider = RankingProvider<AccountId>;
-}
+// struct ReferendumManager<T: pallet_d9_node_voting::Config>(sp_std::marker::PhantomData<T>);
 
-pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-    let mut storage = frame_system::GenesisConfig::<TestRuntime>::default()
-        .build_storage()
-        .unwrap();
+// impl<T: pallet_d9_node_voting::Config> pallet_d9_node_voting::ReferendumManager<T::AccountId>
+//     for ReferendumManager<T>
+// {
+//     fn start_pending_votes(session_index: SessionIndex) {
+//         T::ReferendumManager::start_pending_votes(session_index);
+//     }
 
-    let balanes_genesis_config: pallet_balances::GenesisConfig<TestRuntime> =
-        pallet_balances::GenesisConfig {
-            balances: vec![
-                // id, owner, is_sufficient, min_balance
-                (999, 10_000_000_000_000_000_000_000),
-            ],
-        };
+//     fn end_active_votes(session_index: SessionIndex) {
+//         T::ReferendumManager::end_active_votes(session_index);
+//     }
+// }
 
-    config.assimilate_storage(&mut storage).unwrap();
+// parameter_types! {
+//     pub const MaxCandidates: u32 = 288;
+//     pub const MaxValidatorNodes: u32 = 27;
+// }
 
-    let mut ext: sp_io::TestExternalities = storage.into();
-    // Clear thread local vars for https://github.com/paritytech/substrate/issues/10479.
-    ext.execute_with(|| take_hooks());
-    ext.execute_with(|| System::set_block_number(1));
-    ext
-}
+// impl pallet_d9_node_voting::Config for TestRuntime {
+//     type CurrencySubUnits = CurrencySubUnits;
+//     type Currency = Balances;
+//     type RuntimeEvent = RuntimeEvent;
+//     type MaxCandidates = MaxCandidates;
+//     type MaxValidatorNodes = MaxValidatorNodes;
+//     type NodeRewardManager = Rewards;
+//     type ReferendumManager = ReferendumManager<Self>;
+// }
+
+// struct RankingProvider<T: pallet_d9_council_lock::Config>(sp_std::marker::PhantomData<T>);
+
+// impl<T: pallet_d9_council_lock::Config> pallet_d9_council_lock::RankingProvider<T::AccountId>
+//     for RankingProvider<T>
+// {
+//     fn get_ranked_nodes() -> Option<Vec<T::AccountId>> {
+//         T::RankingProvider::get_ranked_nodes()
+//     }
+
+//     fn current_session_index() -> SessionIndex {
+//         T::RankingProvider::current_session_index()
+//     }
+// }
+
+// parameter_types! {
+//     pub const LockIdentifier: [u8; 8] = *b"council/";
+//     pub const PalletCouncilId: PalletId = PalletId(*b"council/");
+//     pub const VotingCouncilSize: u32 = 27;
+//     pub const MinNominatorRank: u32 = 188;
+//     pub const AssentingVotesThreshold: u32 = 19;
+//     pub const DissentingVotesThreshold: u32 = 10;
+//     pub const NumberOfSessionsBeforeVote: u32 = 2;
+// }
+
+// impl pallet_d9_council_lock::Config for TestRuntime {
+//     type LockIdentifier = LockIdentifier;
+//     type Currency = Balances;
+//     type LockableCurrency = Balances;
+//     type RuntimeEvent = RuntimeEvent;
+//     type PalletId = PalletCouncilId;
+//     type VotingCouncilSize = VotingCouncilSize;
+//     type MinNominatorRank = MinNominatorRank;
+//     type AssentingVotesThreshold = AssentingVotesThreshold;
+//     type DissentingVotesThreshold = DissentingVotesThreshold;
+//     type NumberOfSessionsBeforeVote = NumberOfSessionsBeforeVote;
+//     type RankingProvider = RankingProvider<Self>;
+// }
+
+// pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
+//     let mut storage = frame_system::GenesisConfig::default()
+//         .build_storage::<TestRuntime>()
+//         .unwrap();
+//     let balances_genesis_config: pallet_d9_balances::GenesisConfig<TestRuntime> =
+//         pallet_d9_balances::GenesisConfig {
+//             balances: vec![(999, 10_000_000_000_000_000_000_000)],
+//         };
+//     balances_genesis_config
+//         .assimilate_storage(&mut storage)
+//         .unwrap();
+//     let mut ext: sp_io::TestExternalities = storage.into();
+//     ext.execute_with(|| System::set_block_number(1));
+//     ext
+// }

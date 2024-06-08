@@ -1,12 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use sp_staking::SessionIndex;
 mod types;
+// mod mock;
+// mod tests;
 use frame_support::{
     traits::{Currency, LockableCurrency, WithdrawReasons},
     PalletId,
 };
 pub use pallet::*;
-use pallet_d9_node_voting::ReferendumManager;
+// use pallet_d9_node_voting::ReferendumManager;
 pub use types::*;
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -35,7 +37,7 @@ pub mod pallet {
         type LockableCurrency: LockableCurrency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         #[pallet::constant]
-        type PalletId: Get<PalletId>;
+        type CouncilPalletId: Get<PalletId>;
         // the size of the voting counil (top 27 nodes)
         type VotingCouncilSize: Get<u32>;
         // mininum account lock nominator rank
@@ -418,7 +420,7 @@ pub mod pallet {
             T::Currency::transfer(&from, &to, amount, ExistenceRequirement::KeepAlive)
         }
 
-        fn start_pending_votes(current_session_index: SessionIndex) -> () {
+        pub fn start_pending_votes(current_session_index: SessionIndex) -> () {
             let vote_start_threshold_session =
                 current_session_index - T::NumberOfSessionsBeforeVote::get();
             let lock_proposals = LockDecisionProposals::<T>::iter().collect::<Vec<_>>();
@@ -431,7 +433,7 @@ pub mod pallet {
             }
         }
 
-        fn end_active_votes(ending_index: SessionIndex) -> () {
+        pub fn end_active_votes(ending_index: SessionIndex) -> () {
             let lock_referendums = LockReferendums::<T>::iter().collect::<Vec<_>>();
 
             for (account_id, referendum) in lock_referendums {
@@ -447,12 +449,12 @@ pub mod pallet {
             }
         }
     }
-    impl<T:Config> ReferendumManager for Pallet<T> {
-        fn start_pending_votes(session_index: SessionIndex) {
-            Self::start_pending_votes(session_index);
-        }
-        fn end_active_votes(session_index: SessionIndex) {
-            Self::end_active_votes(session_index);
-        }
-    }
+    // impl<T: Config> ReferendumManager for Pallet<T> {
+    //     fn start_pending_votes(session_index: SessionIndex) {
+    //         Self::start_pending_votes(session_index);
+    //     }
+    //     fn end_active_votes(session_index: SessionIndex) {
+    //         Self::end_active_votes(session_index);
+    //     }
+    // }
 }
