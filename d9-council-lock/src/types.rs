@@ -1,7 +1,7 @@
 use crate::pallet::Config;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{pallet_prelude::*, BoundedVec};
+use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
 use sp_staking::SessionIndex;
 
 #[derive(
