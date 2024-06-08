@@ -8,7 +8,6 @@ use frame_support::{
     PalletId,
 };
 pub use pallet::*;
-// use pallet_d9_node_voting::ReferendumManager;
 pub use types::*;
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
