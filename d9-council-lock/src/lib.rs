@@ -187,10 +187,9 @@ pub mod pallet {
             if referendum_option.is_none() {
                 return Err(Error::<T>::ReferendumDoesNotExist.into());
             }
-            let _ = Self::check_voter(voter.clone())?;
             let referendum = referendum_option.unwrap();
-
-            let result = Self::process_vote(lock_candidate.clone(), assent_on_decision, referendum);
+            let _ = Self::check_voter(&voter, &referendum)?;
+            let result = Self::process_vote(lock_candidate, assent_on_decision, referendum);
             match result {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.into()),
@@ -258,7 +257,7 @@ pub mod pallet {
 
         /// validate origin is permitted to nominate
         fn check_nominator(account_id: &T::AccountId) -> Result<(), Error<T>> {
-            let _ = Self::check_action_eligibility(account_id.clone())?;
+            let _ = Self::check_action_eligibility(account_id)?;
             let ranked_nodes = Self::get_ranked_nodes()?;
             if let Some(index) = ranked_nodes.iter().position(|x| x == account_id) {
                 if index < T::MinNominatorRank::get() as usize {
@@ -268,14 +267,18 @@ pub mod pallet {
             return Err(Error::<T>::NotValidNominator);
         }
 
-        fn check_voter(account_id: T::AccountId) -> Result<(), Error<T>> {
-            let _ = Self::check_action_eligibility(account_id.clone())?;
+        fn check_voter(
+            account_id: &T::AccountId,
+            referendum: &LockReferendum<T>,
+        ) -> Result<(), Error<T>> {
+            let _ = Self::check_action_eligibility(account_id)?;
             let _ = Self::check_is_council_member(account_id)?;
+            let _ = Self::check_only_single_vote(account_id, referendum)?;
             Ok(())
         }
 
         /// is caller permitted to nominate or vote
-        fn check_action_eligibility(account_id: T::AccountId) -> Result<(), Error<T>> {
+        fn check_action_eligibility(account_id: &T::AccountId) -> Result<(), Error<T>> {
             let locked_account_option = LockedAccounts::<T>::get(account_id);
             if locked_account_option.is_some() {
                 return Err(Error::<T>::LockedAccountsNotPermittedToInteract);
@@ -284,14 +287,27 @@ pub mod pallet {
         }
 
         /// only nodes within `VotingCouncilSize` in ranked nodes can vote
-        fn check_is_council_member(account_id: T::AccountId) -> Result<(), Error<T>> {
+        fn check_is_council_member(account_id: &T::AccountId) -> Result<(), Error<T>> {
             let ranked_nodes = Self::get_ranked_nodes()?;
-            if let Some(index) = ranked_nodes.iter().position(|x| x == &account_id) {
+            if let Some(index) = ranked_nodes.iter().position(|x| x == account_id) {
                 if index < T::VotingCouncilSize::get() as usize {
                     return Ok(());
                 }
             }
             return Err(Error::<T>::NotValidCouncilMember);
+        }
+
+        // only single vote per referendum per voter
+        fn check_only_single_vote(
+            account_id: &T::AccountId,
+            referendum: &LockReferendum<T>,
+        ) -> Result<(), Error<T>> {
+            if referendum.assenting_voters.contains(&account_id)
+                || referendum.dissenting_voters.contains(&account_id)
+            {
+                return Err(Error::<T>::LockedAccountCannotVote);
+            }
+            Ok(())
         }
 
         fn check_fee(amount_sent: BalanceOf<T>) -> Result<(), Error<T>> {
