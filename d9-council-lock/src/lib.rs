@@ -118,6 +118,7 @@ pub mod pallet {
         ReferendumDoesNotExist,
         NotValidCouncilMember,
         ErrorCalculatingVotes,
+        VoterAlreadyVoted,
     }
 
     #[pallet::call]
@@ -305,7 +306,7 @@ pub mod pallet {
             if referendum.assenting_voters.contains(&account_id)
                 || referendum.dissenting_voters.contains(&account_id)
             {
-                return Err(Error::<T>::LockedAccountCannotVote);
+                return Err(Error::<T>::VoterAlreadyVoted);
             }
             Ok(())
         }
@@ -464,12 +465,4 @@ pub mod pallet {
             }
         }
     }
-    // impl<T: Config> ReferendumManager for Pallet<T> {
-    //     fn start_pending_votes(session_index: SessionIndex) {
-    //         Self::start_pending_votes(session_index);
-    //     }
-    //     fn end_active_votes(session_index: SessionIndex) {
-    //         Self::end_active_votes(session_index);
-    //     }
-    // }
 }
