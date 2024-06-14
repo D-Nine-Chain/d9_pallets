@@ -49,6 +49,7 @@ pub mod pallet {
         type DissentingVotesThreshold: Get<u32>;
         // prepares votes: gets valid nominators/voters turns proposal into votes
         type RankingProvider: RankingProvider<Self::AccountId>;
+        type ProposalFee: Get<BalanceOf<Self>>;
     }
 
     #[pallet::storage]
