@@ -1,10 +1,15 @@
 ## Using `ApiRx`
+
+## extrinsics
+
+[extrinsics documentation](extrinsics.md) (state changing functions)
 - [Using `ApiRx`](#using-apirx)
+- [extrinsics](#extrinsics)
   - [`concludedLockReferendums`](#concludedlockreferendums)
     - [Description](#description)
   - [`lockDecisionProposals`](#lockdecisionproposals)
     - [Description](#description-1)
-  - [`lock_referendums`](#lock_referendums)
+  - [`lockReferendums`](#lockreferendums)
     - [Description](#description-2)
   - [`lockedAccounts`](#lockedaccounts)
     - [Description](#description-3)
@@ -80,7 +85,7 @@ function getLockProposals(accountId:string) {
 
 ```
 
-### `lock_referendums`
+### `lockReferendums`
 #### Description
 This storage map holds active lock referendums for each account.
 
