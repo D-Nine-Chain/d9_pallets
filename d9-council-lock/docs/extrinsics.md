@@ -42,3 +42,5 @@ function voteOnProposal(lockCandidate: string, agreeToLock: boolean): Observable
 
 the return type `ISubmittableResult` is just the same as the others extrinsics in the wallet app. 
 
+
+
