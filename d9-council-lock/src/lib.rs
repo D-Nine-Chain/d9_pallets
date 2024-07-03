@@ -96,6 +96,8 @@ pub mod pallet {
     pub enum Event<T: Config> {
         AccountNominatedForLock(T::AccountId),
         ProposalFeePaid(T::AccountId, BalanceOf<T>),
+        ///voter, proposed account lock state, decision
+        VoteRecorded(T::AccountId, T::AccountId, AccountLockState, bool),
         AccountLocked(T::AccountId),
         AccountUnlocked(T::AccountId),
         AccountNominatedForUnlock(T::AccountId),
@@ -179,7 +181,7 @@ pub mod pallet {
 
         #[pallet::call_index(4)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
-        pub fn vote_on_proposal(
+        pub fn vote_in_referendum(
             origin: OriginFor<T>,
             lock_candidate: T::AccountId,
             assent_on_decision: bool,
@@ -191,7 +193,8 @@ pub mod pallet {
             }
             let referendum = referendum_option.unwrap();
             let _ = Self::check_voter(&voter, &referendum)?;
-            let result = Self::process_vote(lock_candidate, assent_on_decision, referendum);
+            let result = Self::process_vote(voter, assent_on_decision, referendum);
+
             match result {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.into()),
@@ -257,7 +260,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// validate origin is permitted to nominate
+        //// validate origin is permitted to nominate
         fn check_nominator(account_id: &T::AccountId) -> Result<(), Error<T>> {
             let _ = Self::check_action_eligibility(account_id)?;
             let ranked_nodes = Self::get_ranked_nodes()?;
@@ -338,29 +341,36 @@ pub mod pallet {
         }
 
         fn process_vote(
-            account_id: T::AccountId,
+            voter_id: T::AccountId,
             decision: bool,
             mut referendum: LockReferendum<T>,
         ) -> Result<VoteResult, Error<T>> {
-            let add_vote_result = referendum.add_vote(account_id.clone(), decision);
+            let add_vote_result = referendum.add_vote(voter_id.clone(), decision);
             if add_vote_result.is_err() {
                 return Err(Error::ErrorCalculatingVotes);
             }
             let vote_result = add_vote_result.unwrap();
+            Self::deposit_event(Event::VoteRecorded(
+                voter_id.clone(),
+                referendum.proposed_account.clone(),
+                referendum.change_to.clone(),
+                decision,
+            ));
             if vote_result == VoteResult::Passed || vote_result == VoteResult::Rejected {
                 Self::deposit_event(Event::VoteEnded(vote_result.clone()));
                 Self::execute_referendum(&referendum)?;
                 ConcludedLockReferendums::<T>::insert(
                     (
                         T::RankingProvider::current_session_index(),
-                        account_id.clone(),
+                        referendum.proposed_account.clone(),
                     ),
                     referendum,
                 );
-                LockReferendums::<T>::remove(account_id.clone());
+                LockReferendums::<T>::remove(voter_id.clone());
             } else {
-                LockReferendums::<T>::insert(account_id.clone(), referendum);
+                LockReferendums::<T>::insert(voter_id.clone(), referendum);
             }
+
             Ok(vote_result)
         }
 

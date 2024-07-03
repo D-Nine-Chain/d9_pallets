@@ -24,6 +24,7 @@ pub struct LockDecisionProposal<T: Config> {
     /// request to change account to this state
     pub change_to: AccountLockState,
 }
+
 #[derive(
     PartialEqNoBound,
     EqNoBound,
