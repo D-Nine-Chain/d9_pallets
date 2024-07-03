@@ -1,6 +1,6 @@
 [package]
 name = "pallet-d9-council-lock"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,12 +8,12 @@ edition = "2021"
 [dependencies]
 pallet-d9-balances = { path = "../d9-balances", default-features = false, version = "^1.0.0" }
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = [
-    "derive",
-    "max-encoded-len",
+     "derive",
+     "max-encoded-len",
 ] }
 impl-trait-for-tuples = "0.2.2"
 scale-info = { version = "2.5.0", default-features = false, features = [
-    "derive",
+     "derive",
 ] }
 substrate-fixed = { default-features = false, git = "https://github.com/encointer/substrate-fixed" }
 serde = { version = "1.0.163", features = ["derive"], optional = true }
@@ -40,25 +40,25 @@ pallet-utility = { version = "4.0.0-dev", default-features = false, git = "https
 default = ["std"]
 
 std = [
-    "frame-benchmarking?/std",
-    "codec/std",
-    "frame-support/std",
-    "frame-system/std",
-    "frame-election-provider-support/std",
-    "pallet-d9-balances/std",
-    "scale-info/std",
-    "serde",
-    "sp-runtime/std",
-    "sp-std/std",
-    "sp-api/std",
-    "sp-staking/std",
-    "sp-core/std",
+     "frame-benchmarking?/std",
+     "codec/std",
+     "frame-support/std",
+     "frame-system/std",
+     "frame-election-provider-support/std",
+     "pallet-d9-balances/std",
+     "scale-info/std",
+     "serde",
+     "sp-runtime/std",
+     "sp-std/std",
+     "sp-api/std",
+     "sp-staking/std",
+     "sp-core/std",
 ]
 
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
+     "frame-benchmarking/runtime-benchmarks",
+     "frame-support/runtime-benchmarks",
+     "frame-system/runtime-benchmarks",
 ]
 
 try-runtime = ["frame-support/try-runtime"]

@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-council-lock"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
