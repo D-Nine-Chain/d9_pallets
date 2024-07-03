@@ -356,19 +356,21 @@ pub mod pallet {
                 referendum.change_to.clone(),
                 decision,
             ));
+            let proposed_account = referendum.proposed_account.clone();
             if vote_result == VoteResult::Passed || vote_result == VoteResult::Rejected {
                 Self::deposit_event(Event::VoteEnded(vote_result.clone()));
                 Self::execute_referendum(&referendum)?;
+
                 ConcludedLockReferendums::<T>::insert(
                     (
                         T::RankingProvider::current_session_index(),
-                        referendum.proposed_account.clone(),
+                        proposed_account.clone(),
                     ),
                     referendum,
                 );
-                LockReferendums::<T>::remove(voter_id.clone());
+                LockReferendums::<T>::remove(proposed_account);
             } else {
-                LockReferendums::<T>::insert(voter_id.clone(), referendum);
+                LockReferendums::<T>::insert(proposed_account, referendum);
             }
 
             Ok(vote_result)
