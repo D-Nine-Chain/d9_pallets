@@ -1745,6 +1745,7 @@ dependencies = [
  "impl-trait-for-tuples",
  "pallet-d9-balances",
  "pallet-session",
+ "pallet-timestamp",
  "pallet-utility",
  "parity-scale-codec",
  "scale-info",

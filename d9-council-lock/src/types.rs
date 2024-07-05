@@ -3,7 +3,7 @@ use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
 use sp_staking::SessionIndex;
-
+type MomentOf<T> = <T as pallet_timestamp::Config>::Moment;
 #[derive(
     PartialEqNoBound,
     EqNoBound,
@@ -23,6 +23,10 @@ pub struct LockDecisionProposal<T: Config> {
     pub nominator: T::AccountId,
     /// request to change account to this state
     pub change_to: AccountLockState,
+    /// start time
+    pub start_time: MomentOf<T>,
+    /// end time
+    pub end_time: Option<MomentOf<T>>,
 }
 
 #[derive(
@@ -61,10 +65,14 @@ pub struct LockReferendum<T: Config> {
     pub assenting_voters: BoundedVec<T::AccountId, T::AssentingVotesThreshold>,
     /// accounts voting AGAINST a proposal
     pub dissenting_voters: BoundedVec<T::AccountId, T::DissentingVotesThreshold>,
+    /// start
+    pub start_time: MomentOf<T>,
+    /// end
+    pub end_time: Option<MomentOf<T>>,
 }
 
 impl<T: Config> LockReferendum<T> {
-    pub fn new(proposal: LockDecisionProposal<T>) -> Self {
+    pub fn new(proposal: LockDecisionProposal<T>, start_time: MomentOf<T>) -> Self {
         LockReferendum {
             nominator: proposal.nominator,
             proposed_account: proposal.proposed_account,
@@ -72,6 +80,8 @@ impl<T: Config> LockReferendum<T> {
             assenting_voters: BoundedVec::new(),
             dissenting_voters: BoundedVec::new(),
             change_to: proposal.change_to,
+            start_time,
+            end_time: None,
         }
     }
 
