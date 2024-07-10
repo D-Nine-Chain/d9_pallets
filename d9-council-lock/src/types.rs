@@ -26,7 +26,7 @@ pub struct Proposal<T: Config> {
     /// start time
     pub creation_time: MomentOf<T>,
     /// time until this proposal becomes a votea
-    pub estimated_time_to_referendum: MomentOf<T>,
+    pub estimated_time_to_referendum: Option<MomentOf<T>>,
 }
 
 #[derive(
@@ -185,5 +185,5 @@ pub trait RankingProvider<AccountId> {
 
 pub trait SessionTimeEstimator<T: Config> {
     fn est_session_total_duration() -> MomentOf<T>;
-    fn est_current_session_remaining_duration() -> MomentOf<T>;
+    fn est_current_session_remaining_duration() -> Option<MomentOf<T>>;
 }

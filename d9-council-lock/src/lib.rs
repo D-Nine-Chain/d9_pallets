@@ -243,20 +243,28 @@ pub mod pallet {
             }
         }
 
-        fn estimate_time_to_referendum() -> MomentOf<T> {
+        fn estimate_time_to_referendum() -> Option<MomentOf<T>> {
             let single_session_duration: MomentOf<T> =
                 T::SessionTimeEstimator::est_session_total_duration();
             let wait_to_vote_duration: MomentOf<T> =
                 MomentOf::<T>::from(T::NumberOfSessionsBeforeVote::get())
                     .saturating_mul(single_session_duration);
-            let est_time_to_session_change: MomentOf<T> =
+            let remaining_duration_option: Option<MomentOf<T>> =
                 T::SessionTimeEstimator::est_current_session_remaining_duration();
-            wait_to_vote_duration.saturating_add(est_time_to_session_change)
+            match remaining_duration_option {
+                Some(remaining_duration) => {
+                    let now = Self::get_time_stamp();
+                    Some(
+                        now.saturating_add(wait_to_vote_duration)
+                            .saturating_add(remaining_duration),
+                    )
+                }
+                None => None,
+            }
         }
 
         fn estimate_referendum_end_time() -> MomentOf<T> {
-            let remaining_duration =
-                T::SessionTimeEstimator::est_current_session_remaining_duration();
+            let remaining_duration = T::SessionTimeEstimator::est_session_total_duration();
             let now = Self::get_time_stamp();
             now.saturating_add(remaining_duration)
         }
