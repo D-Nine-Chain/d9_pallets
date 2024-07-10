@@ -14,7 +14,7 @@ type MomentOf<T> = <T as pallet_timestamp::Config>::Moment;
     TypeInfo,
     MaxEncodedLen,
 )]
-pub struct LockDecisionProposal<T: Config> {
+pub struct Proposal<T: Config> {
     /// the account that is being voted on.
     pub proposed_account: T::AccountId,
     /// the index at which the proposal was made. this will determine when the vote will start.
@@ -24,9 +24,9 @@ pub struct LockDecisionProposal<T: Config> {
     /// request to change account to this state
     pub change_to: AccountLockState,
     /// start time
-    pub start_time: MomentOf<T>,
-    /// end time
-    pub end_time: Option<MomentOf<T>>,
+    pub creation_time: MomentOf<T>,
+    /// time until this proposal becomes a votea
+    pub estimated_time_to_referendum: MomentOf<T>,
 }
 
 #[derive(
@@ -68,11 +68,15 @@ pub struct LockReferendum<T: Config> {
     /// start
     pub start_time: MomentOf<T>,
     /// end
-    pub end_time: Option<MomentOf<T>>,
+    pub estimated_end_time: MomentOf<T>,
 }
 
 impl<T: Config> LockReferendum<T> {
-    pub fn new(proposal: LockDecisionProposal<T>, start_time: MomentOf<T>) -> Self {
+    pub fn new(
+        proposal: Proposal<T>,
+        start_time: MomentOf<T>,
+        estimated_end_time: MomentOf<T>,
+    ) -> Self {
         LockReferendum {
             nominator: proposal.nominator,
             proposed_account: proposal.proposed_account,
@@ -81,7 +85,7 @@ impl<T: Config> LockReferendum<T> {
             dissenting_voters: BoundedVec::new(),
             change_to: proposal.change_to,
             start_time,
-            end_time: None,
+            estimated_end_time,
         }
     }
 
@@ -134,7 +138,52 @@ pub struct AccountLock<T: Config> {
     pub lock_index: SessionIndex,
 }
 
+#[derive(
+    PartialEqNoBound,
+    EqNoBound,
+    CloneNoBound,
+    Encode,
+    Decode,
+    RuntimeDebugNoBound,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub struct Resolution<T: Config> {
+    pub nominator: T::AccountId,
+    pub proposed_account: T::AccountId,
+    pub index_of_proposal: SessionIndex,
+    pub changed_to: AccountLockState,
+    pub assenting_voters: BoundedVec<T::AccountId, T::AssentingVotesThreshold>,
+    /// accounts voting AGAINST a proposal
+    pub dissenting_voters: BoundedVec<T::AccountId, T::DissentingVotesThreshold>,
+    pub result: VoteResult,
+    pub end_time: MomentOf<T>,
+}
+impl<T: Config> Resolution<T> {
+    pub fn new(
+        lock_referendum: LockReferendum<T>,
+        vote_result: VoteResult,
+        end_time: MomentOf<T>,
+    ) -> Self {
+        Resolution {
+            nominator: lock_referendum.nominator,
+            proposed_account: lock_referendum.proposed_account,
+            index_of_proposal: lock_referendum.index_of_proposal,
+            changed_to: lock_referendum.change_to,
+            assenting_voters: lock_referendum.assenting_voters,
+            dissenting_voters: lock_referendum.dissenting_voters,
+            result: vote_result,
+            end_time,
+        }
+    }
+}
+
 pub trait RankingProvider<AccountId> {
     fn get_ranked_nodes() -> Option<Vec<AccountId>>;
     fn current_session_index() -> SessionIndex;
+}
+
+pub trait SessionTimeEstimator<T: Config> {
+    fn est_session_total_duration() -> MomentOf<T>;
+    fn est_current_session_remaining_duration() -> MomentOf<T>;
 }
