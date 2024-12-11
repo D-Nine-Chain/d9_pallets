@@ -121,6 +121,7 @@ pub mod pallet {
         AccountAlreadyLocked,
         AccountNotLocked,
         ProposalAlreadyExists,
+        AccountAlreadyInReferendum,
         AdminCannotBeNominated,
         LockCandidatesNotPermittedToInteract,
         LockedAccountsNotPermittedToInteract,
@@ -303,6 +304,10 @@ pub mod pallet {
                 AccountLockState::Unlocked => {
                     let _ = Self::is_account_unlockable(&proposal.proposed_account)?;
                 }
+            }
+            let existing_referendum = Referendums::<T>::get(proposal.proposed_account.clone());
+            if existing_referendum.is_some() {
+                return Err(Error::<T>::AccountAlreadyInReferendum);
             }
             Ok(())
         }
