@@ -5,5 +5,5 @@ members = [
     "d9-node-voting/",
     "d9-referral/",
     "d9-treasury/",
-    "d9-node-rewards",
+    "d9-node-rewards", "d9-node-offense",
 ]
