@@ -1,2 +1,3 @@
 **/target/
 .prettierrc
+**/.DS_Store

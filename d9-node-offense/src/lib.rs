@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-use sp_staking::offence::{ Kind, Offence, ReportOffence};
-use pallet_session::{IdentificationTuple, SessionIndex, ValidatorId};
-use pallet_im_online::offence::UnresponsivenessOffence;
-use pallet_session::ValidatorSetWithIdentification;
+
+use pallet_im_online::{IdentificationTuple, UnresponsivenessOffence};
+use sp_staking::offence::{Offence, OffenceError, ReportOffence};
+use sp_std::prelude::*;
 
 mod types;
 pub use pallet::*;
@@ -12,7 +12,7 @@ pub use types::*;
 pub mod pallet {
     use super::*;
     use frame_support::{inherent::Vec, pallet_prelude::*};
-    use frame_system::pallet_prelude::*;
+    use frame_system::{ensure_signed, pallet_prelude::*};
     use sp_staking::offence::ReportOffence;
 
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
@@ -21,9 +21,15 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_im_online::Config {
+        // Add pallet_im_online::Config
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        type
+        type NodeId: Member
+            + Parameter
+            + MaybeSerializeDeserialize
+            + MaxEncodedLen
+            + TryFrom<Self::AccountId>;
+        // type IdentificationTuple: Parameter;  // No longer needed here
     }
 
     #[pallet::storage]
@@ -33,57 +39,48 @@ pub mod pallet {
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {}
+    pub enum Event<T: Config> {
+        SomeEvent,
+    }
 
     #[pallet::error]
-    pub enum Error<T> {}
-
-    #[pallet::genesis_config]
-    pub struct GenesisConfig<T: Config> {
-    }
-
-    #[pallet::genesis_build]
-    impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
-        fn build(&self) {}
-    }
-
-    #[cfg(feature = "std")]
-    impl<T: Config> Default for GenesisConfig<T> {
-        fn default() -> Self {
-            Self {}
-        }
+    pub enum Error<T> {
+        SomeErrors,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn submit_candidacy() -> DispatchResult {
+        pub fn submit_candidacy(origin: OriginFor<T>) -> DispatchResult {
+            let _ = ensure_signed(origin)?;
             Ok(())
         }
     }
-    impl<T: Config> Pallet<T> {}
 
-    impl<T: Config> ReportOffence<
-        T::AccountId,
-        IdentificationTuple<T>,
-        UnresponsivenessOffence<IdentificationTuple<T>>
-    > for Pallet<T> {
+    impl<T: Config>
+        ReportOffence<
+            T::AccountId,
+            IdentificationTuple<T>,
+            UnresponsivenessOffence<IdentificationTuple<T>>,
+        > for Pallet<T>
+    {
         fn report_offence(
             reporters: Vec<T::AccountId>,
-            offence: UnresponsivenessOffence<IdentificationTuple<T>>
+            offence: UnresponsivenessOffence<IdentificationTuple<T>>,
         ) -> Result<(), OffenceError> {
-            // Your implementation logic
+            let offenders = offence.offenders();
+
             Ok(())
         }
-
         fn is_known_offence(
             offenders: &[IdentificationTuple<T>],
-            time_slot: &<UnresponsivenessOffence<IdentificationTuple<T>>> as Offence<_>>::TimeSlot
+            time_slot: &<UnresponsivenessOffence<IdentificationTuple<T>> as Offence<
+                IdentificationTuple<T>,
+            >>::TimeSlot, // Specify Offender type
         ) -> bool {
             // Your check logic
             false
         }
     }
-
 }
