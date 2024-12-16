@@ -62,17 +62,12 @@ pub mod pallet {
         }
     }
 
-    impl<T>
+    impl<T: Config>
         ReportOffence<
             T::AccountId,
             IdentificationTuple<T>,
             UnresponsivenessOffence<IdentificationTuple<T>>,
         > for Pallet<T>
-    where
-        T: Config,
-        <<T as pallet_im_online::Config>::ValidatorSet as ValidatorSetWithIdentification<
-            T::AccountId,
-        >>::Identification: core::convert::AsRef<ValidatorVoteStats<T>>,
     {
         fn report_offence(
             reporters: Vec<T::AccountId>,
@@ -80,16 +75,11 @@ pub mod pallet {
         ) -> Result<(), OffenceError> {
             //note check to see if this is the right way to identify offenders
             let offenders = offence.offenders();
-            for id_tuple in offence.offenders().iter() {
-                let (validator_id, stats) = id_tuple;
-
-                // Convert the associated type to a &ValidatorVoteStats<T>
-                let stats_ref: &ValidatorVoteStats<T> = stats.as_ref();
-
-                // Now `stats_ref.account_id` works fine.
-                let offender_account_id = stats_ref.account_id;
-
-                NodeVoting::<T>::decommission_candidate(offender_account_id);
+            for id_tuple in offenders.iter() {
+                let (validator_id, _) = id_tuple;
+                let encoded_validator_id = validator_id.encode();
+                let account_id = T::AccountId::decode(&mut &encoded_validator_id[..]).unwrap();
+                //note verify that validator_id is the same as account_id
             }
 
             Ok(())

@@ -493,7 +493,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "d9-node-offense"
+name = "d9-node-offence"
 version = "0.1.0"
 dependencies = [
  "frame-benchmarking",
@@ -501,6 +501,7 @@ dependencies = [
  "frame-system",
  "hex",
  "impl-trait-for-tuples",
+ "pallet-d9-node-voting",
  "pallet-im-online",
  "pallet-session",
  "pallet-utility",

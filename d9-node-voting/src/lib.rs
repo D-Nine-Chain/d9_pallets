@@ -130,11 +130,13 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        /// candidate's accountId
         CandidacySubmitted(T::AccountId),
         ///（candidate, voter, amount)
         CandidateVotesIncreased(T::AccountId, T::AccountId, u64),
         ///（candidate, voter, amount)
         CandidateVotesDecreased(T::AccountId, T::AccountId, u64),
+        /// candidate's AccountId
         CandidacyRemoved(T::AccountId),
     }
 
@@ -269,7 +271,7 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn remove_candidacy(origin: OriginFor<T>) -> DispatchResult {
             let candidate: T::AccountId = ensure_signed(origin)?;
-            Self::decommission_candidate(candidate.clone());
+            Self::decommission_candidate(candidate.clone())?;
             CurrentNumberOfCandidatesNodes::<T>::mutate(|number| number.saturating_sub(1));
             NodeAccumulativeVotes::<T>::remove(candidate.clone());
             NodeMetadata::<T>::remove(candidate.clone());
@@ -476,6 +478,19 @@ pub mod pallet {
             candidate_metadata.sharing_percent
         }
 
+        /// reassigns votes but keeps as a potential candidate
+        pub fn decommission_candidate(candidate: T::AccountId) -> Result<(), Error<T>> {
+            let is_candidate = Self::is_valid_candidate(&candidate);
+            if !is_candidate {
+                return Err(Error::<T>::CandidateDoesNotExist);
+            }
+            let mut voter_iter = NodeToUserVotesTotals::<T>::iter_prefix((candidate.clone(),));
+            while let Some((supporter, delegated_votes)) = voter_iter.next() {
+                Self::deduct_votes_handler(&supporter, &candidate, delegated_votes);
+            }
+            Ok(())
+        }
+
         fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates =
                 NodeAccumulativeVotes::<T>::iter().collect::<Vec<(T::AccountId, u64)>>();
@@ -619,14 +634,6 @@ pub mod pallet {
                     voting_interest
                 });
             UsersVotingInterests::<T>::insert(voter.clone(), user_voting_interests);
-        }
-
-        /// reassigns votes but keeps as a potential candidate
-        fn decommission_candidate(candidate: T::AccountId) {
-            let mut voter_iter = NodeToUserVotesTotals::<T>::iter_prefix((candidate.clone(),));
-            while let Some((supporter, delegated_votes)) = voter_iter.next() {
-                Self::deduct_votes_handler(&supporter, &candidate, delegated_votes);
-            }
         }
 
         /// removes votes from a voter to a candidate and updates all relevant storage mappings accordingly.
