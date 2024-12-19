@@ -1,9 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use pallet_d9_node_voting::ValidatorVoteStats;
-use pallet_im_online::ValidatorId;
 use pallet_im_online::{IdentificationTuple, UnresponsivenessOffence};
-use sp_staking::offence::{Offence, OffenceError, ReportOffence};
+use sp_staking::offence::{Offence, OffenceError};
+use sp_staking::SessionIndex;
 use sp_std::prelude::*;
 mod types;
 pub use pallet::*;
@@ -12,7 +11,7 @@ pub use types::*;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::{inherent::Vec, pallet_prelude::*, traits::ValidatorSet};
+    use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
     use frame_system::{ensure_signed, pallet_prelude::*};
     use pallet_d9_node_voting::Pallet as NodeVoting;
     use sp_staking::offence::ReportOffence;
@@ -28,23 +27,26 @@ pub mod pallet {
     {
         // Add pallet_im_online::Config
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        type NodeId: Member
-            + Parameter
-            + MaybeSerializeDeserialize
-            + MaxEncodedLen
-            + TryFrom<Self::AccountId>;
-        // type IdentificationTuple: Parameter;  // No longer needed here
+        /// defines the bound of the BoundedVector for the number of offenders per session storage
+        /// if this value were to change then the storage version should be updated
+        type MaxOffendersPerSession: Get<u32>;
     }
 
     #[pallet::storage]
-    #[pallet::getter(fn node_votes)]
-    pub type NodeAccumulativeVotes<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+    #[pallet::getter(fn session_offenders)]
+    pub type SessionOffenders<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        SessionIndex,
+        BoundedVec<T::AccountId, T::MaxOffendersPerSession>,
+        OptionQuery,
+    >;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        SomeEvent,
+        ValidatorDecommissioned(T::AccountId),
+        ErrorDecommissioningValidator(T::AccountId),
     }
 
     #[pallet::error]
@@ -70,27 +72,47 @@ pub mod pallet {
         > for Pallet<T>
     {
         fn report_offence(
-            reporters: Vec<T::AccountId>,
+            _: Vec<T::AccountId>,
             offence: UnresponsivenessOffence<IdentificationTuple<T>>,
         ) -> Result<(), OffenceError> {
-            //note check to see if this is the right way to identify offenders
             let offenders = offence.offenders();
             for id_tuple in offenders.iter() {
                 let (validator_id, _) = id_tuple;
                 let encoded_validator_id = validator_id.encode();
                 let account_id = T::AccountId::decode(&mut &encoded_validator_id[..]).unwrap();
-                //note verify that validator_id is the same as account_id
+                let current_session = pallet_d9_node_voting::Pallet::<T>::current_session_index();
+                SessionOffenders::<T>::mutate(current_session, |offending_nodes_opt| {
+                    if let Some(offending_nodes) = offending_nodes_opt.as_mut() {
+                        // We rely on the bounded nature of BoundedVec to prevent overflow.
+                        let _ = offending_nodes.try_push(account_id.clone());
+                    } else {
+                        let mut new_offending_nodes =
+                            BoundedVec::<T::AccountId, T::MaxOffendersPerSession>::new();
+                        let _ = new_offending_nodes.try_push(account_id.clone());
+                        *offending_nodes_opt = Some(new_offending_nodes);
+                    }
+                });
+                let decommission_result =
+                    NodeVoting::<T>::decommission_candidate(account_id.clone());
+                match decommission_result {
+                    Ok(_) => {
+                        Self::deposit_event(Event::ValidatorDecommissioned(account_id));
+                    }
+                    Err(_) => {
+                        Self::deposit_event(Event::ErrorDecommissioningValidator(account_id));
+                        return Err(OffenceError::Other(0));
+                    }
+                }
             }
 
             Ok(())
         }
         fn is_known_offence(
-            offenders: &[IdentificationTuple<T>],
-            time_slot: &<UnresponsivenessOffence<IdentificationTuple<T>> as Offence<
+            _: &[IdentificationTuple<T>],
+            _: &<UnresponsivenessOffence<IdentificationTuple<T>> as Offence<
                 IdentificationTuple<T>,
             >>::TimeSlot, // Specify Offender type
         ) -> bool {
-            // Your check logic
             false
         }
     }
