@@ -6,4 +6,5 @@ members = [
     "d9-referral/",
     "d9-treasury/",
     "d9-node-rewards",
+    "d9-multi-sig",
 ]
