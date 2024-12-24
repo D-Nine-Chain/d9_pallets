@@ -2,15 +2,15 @@
 
 pub use pallet::*;
 mod types;
-pub use types::*;
+pub use crate::types::*;
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use frame_support::dispatch::{Dispatchable, GetDispatchInfo, PostDispatchInfo};
     use frame_support::pallet_prelude::*;
     use frame_support::traits::StorageVersion;
     use frame_system::pallet_prelude::*;
-
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
         frame_support::traits::StorageVersion::new(1);
     #[pallet::pallet]
@@ -21,8 +21,13 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type MaxSignatories: Get<u32>;
+
         type MaxTransactionSize: Get<u32>;
         type MaxMultiSigsPerAccountId: Get<u32>;
+        type RuntimeCall: Parameter
+            + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
+            + GetDispatchInfo
+            + From<Call<Self>>;
     }
 
     /// the existent multi signature accounts

@@ -28,8 +28,7 @@ pub struct MultiSignatureAccount<T: Config> {
     pub authors: Option<BoundedVec<T::AccountId, T::MaxSignatories>>,
     /// the possible signers for this multi signature account
     pub signatories: BoundedVec<T::AccountId, T::MaxSignatories>,
-    pub pending_transaction: Option<BoundedVec<u8, T::MaxTransactionSize>>,
-    //note need a place to hold pending transactions (approvals)
+    /// minimum number of signatories required to sign a transaction
     pub minimum_signatories: u32,
 }
 
@@ -85,7 +84,6 @@ impl<T: Config> MultiSignatureAccount<T> {
             address,
             authors: authors_opt,
             signatories,
-            pending_transaction: None,
             minimum_signatories,
         })
     }
@@ -96,14 +94,14 @@ impl<T: Config> MultiSignatureAccount<T> {
             Some(authors_bounded_vec) => {
                 let result = authors_bounded_vec.try_extend(authors.iter().cloned());
                 if result.is_err() {
-                    return Err(MultiSigAcctError::AtMaxAuthors);
+                    return Err(MultiSigAcctError::AuthorExtendError);
                     //note give this a better error name
                 }
             }
             None => {
                 let bounded_authors_res = BoundedVec::try_from(authors.to_vec());
                 if bounded_authors_res.is_err() {
-                    return Err(MultiSigAcctError::AtMaxAuthors);
+                    return Err(MultiSigAcctError::AuthorExtendError);
                 }
                 self.authors = Some(bounded_authors_res.unwrap());
             }
@@ -164,6 +162,8 @@ pub enum MultiSigAcctError<T: Config> {
     AlreadyAuthor(T::AccountId),
     /// proposer length too long
     AuthorVecTooLong,
+    /// error in extending authors
+    AuthorExtendError,
     /// not part of the signatories of multi sig account so can not be proposer or sign
     AccountNotSignatory(T::AccountId),
     AtMaxAuthors,
