@@ -1,6 +1,7 @@
 use super::PendingCall;
 use crate::pallet::Config;
 use codec::MaxEncodedLen;
+use crate::pallet:Error;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
 use sp_core::blake2_256;
@@ -102,7 +103,7 @@ impl<T: Config> MultiSignatureAccount<T> {
     pub fn add_call(&mut self, call: PendingCall<T>) -> Result<(), MultiSigAcctError> {
         self.pending_calls
             .try_push(call)
-            .map_err(|_| MultiSigAcctError::AtPendingTransactionLimit)
+            .map_err(|_| MultiSigAcctError::AtPendingCallLimit)
     }
 
     /// remove a call from `pending_calls`
@@ -180,7 +181,44 @@ pub enum MultiSigAcctError {
     /// authors is at T::MaxSignatories - 1
     AtMaxAuthors,
     /// pending call  limit defined by T::MaxPendingTransactions
-    AtPendingTransactionLimit,
+    AtPendingCallLimit,
     /// call is not in pending_calls
     CallNotFound,
+}
+
+impl<T> From<MultiSigAcctError> for Error<T> {
+    fn from(account_error: MultiSigAcctError) -> Self {
+        match account_error {
+            MultiSigAcctError::MinimumSignatoriesRangeError => {
+                Error::AccountError(*b"MinSigRangeErr\0")
+            },
+            MultiSigAcctError::DuplicateAuthors => {
+                Error::AccountError(*b"DupAuthors\0\0\0\0\0")
+            },
+            MultiSigAcctError::MultiSigAccountExists => {
+                Error::AccountError(*b"MsaAlrdyExists\0")
+            },
+            MultiSigAcctError::AlreadyAuthor => {
+                Error::AccountError(*b"AlreaddyAuthor\0")
+            },
+            MultiSigAcctError::AuthorVecTooLong => {
+                Error::AccountError(*b"AuthorVecTooLng")
+            },
+            MultiSigAcctError::AuthorExtendError => {
+                Error::AccountError(*b"AuthExtendErr\0\0")
+            },
+            MultiSigAcctError::AccountNotSignatory => {
+                Error::AccountError(*b"AcctNotSigner\0\0")
+            },
+            MultiSigAcctError::AtMaxAuthors => {
+                Error::AccountError(*b"AtMaxAuthors\0\0\0")
+            },
+            MultiSigAcctError::AtPendingCallLimit => {
+                Error::AccountError(*b"PendCallLimit\0\0")
+            },
+            MultiSigAcctError::CallNotFound => {
+                Error::AccountError(*b"CallNotFound\0\0\0")
+            },
+        }
+    }
 }

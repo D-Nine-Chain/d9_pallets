@@ -8,6 +8,8 @@ pub type BoundedCallOf<T> = BoundedVec<u8, <T as Config>::MaxCallSize>;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    mod errors;
+    pub use errors::Error;
     use frame_support::dispatch::{Dispatchable, GetDispatchInfo, PostDispatchInfo};
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -31,11 +33,23 @@ pub mod pallet {
     }
 
     /// the existent multi signature accounts
+    ///
+    /// key: multi signature account address value: multi signature account
     #[pallet::storage]
     #[pallet::getter(fn multi_signature_accounts)]
     pub type MultiSignatureAccounts<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, MultiSignatureAccount<T>, OptionQuery>;
 
+    /// record of clients' associated multi signature accounts
+    #[pallet::storage]
+    #[pallet::getter(fn user_to_multi_signature_accounts)]
+    pub type UserToMultiSignatureAccounts<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, T::MaxMultiSigsPerAccountId>,
+        OptionQuery,
+    >;
     /// this will be called by clients so they can be aware of the multi signature accounts they are signatories of. Limited to MaxMultiSigsPerAccountId
     #[pallet::storage]
     #[pallet::getter(fn user_multi_signature_accounts)]
@@ -61,7 +75,7 @@ pub mod pallet {
         /// remove approval from transaction (multi signature account, approver)
         ApprovalRemoved(T::AccountId, T::AccountId),
         /// (executor)
-        CallExecuted([u8; 32]),
+        CallExecuted([u8; 10]),
     }
 
     #[pallet::error]
@@ -71,8 +85,10 @@ pub mod pallet {
         MultiSignatureAccountAlreadyExists,
         MultiSignatureAccountNotFound,
         PendingTransactionAlreadyExists,
-        AccountError((MultiSigAcctError)),
+        AccountError([u8; 15]),
     }
+    // #[pallet::error]
+    // Error;
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
