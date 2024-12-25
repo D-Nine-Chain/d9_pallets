@@ -501,6 +501,7 @@ dependencies = [
  "frame-system",
  "impl-trait-for-tuples",
  "pallet-balances",
+ "pallet-timestamp",
  "pallet-treasury",
  "pallet-utility",
  "parity-scale-codec",
