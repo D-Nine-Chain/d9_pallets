@@ -1,11 +1,12 @@
 use super::PendingCall;
 use crate::pallet::Config;
+use crate::pallet::Error;
 use codec::MaxEncodedLen;
-use crate::pallet:Error;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
 use sp_core::blake2_256;
 use sp_runtime::traits::TrailingZeroInput;
+
 #[derive(
     PartialEqNoBound,
     EqNoBound,
@@ -34,53 +35,66 @@ impl<T: Config> MultiSignatureAccount<T> {
     pub fn new(
         mut signatories: BoundedVec<T::AccountId, T::MaxSignatories>,
         authors_opt: Option<Vec<T::AccountId>>,
-        minimum_signatories: u32,
+        min_approvals: u32,
     ) -> Result<Self, MultiSigAcctError> {
-        // Ensure 1 <= minimum_signatories <= signatories.len()
-        if minimum_signatories < 1 || minimum_signatories > signatories.len() as u32 {
-            return Err(MultiSigAcctError::MinimumSignatoriesRangeError);
-        }
-        // Sort signatories for consistent ordering
+        Self::validate_signatories(&signatories, min_approvals)?;
         signatories.sort();
+        Self::check_duplicates(&signatories)?;
         let address = Self::construct_address(&signatories);
-
-        let authors_opt = match authors_opt {
-            Some(mut authors) => {
-                // If authors is the same size as signatories, force authors to None
-                if authors.len() == signatories.len() {
-                    None
-                } else {
-                    authors.sort();
-                    let no_duplicates = authors.windows(2).all(|pair| pair[0] != pair[1]);
-                    if !no_duplicates {
-                        return Err(MultiSigAcctError::DuplicateAuthors);
-                    }
-                    for author in &authors {
-                        if !signatories.contains(author) {
-                            return Err(MultiSigAcctError::AccountNotSignatory);
-                        }
-                    }
-                    let try_into_bounded_vec = BoundedVec::try_from(authors);
-                    if try_into_bounded_vec.is_err() {
-                        return Err(MultiSigAcctError::AtMaxAuthors);
-                    }
-                    Some(try_into_bounded_vec.unwrap())
-                }
-            }
-            None => None,
-        };
-
+        let authors_bounded_vec = Self::prepare_authors(authors_opt, &signatories)?;
         Ok(Self {
             address,
-            authors: authors_opt,
+            authors: authors_bounded_vec,
             signatories,
-            minimum_signatories,
+            minimum_signatories: min_approvals,
             pending_calls: BoundedVec::default(),
         })
     }
 
+    /// Validate the signatories list and minimum approvals
+    fn validate_signatories(
+        signatories: &BoundedVec<T::AccountId, T::MaxSignatories>,
+        min_approvals: u32,
+    ) -> Result<(), MultiSigAcctError> {
+        if signatories.len() < 2 {
+            return Err(MultiSigAcctError::SignatoriesListTooShort);
+        }
+        let count = signatories.len() as u32;
+        if !(1..=count).contains(&min_approvals) {
+            return Err(MultiSigAcctError::MinimumApprovalsRangeError);
+        }
+        Ok(())
+    }
+
+    /// prep authors for insertion into the struct
+    fn prepare_authors(
+        authors_opt: Option<Vec<T::AccountId>>,
+        signatories: &BoundedVec<T::AccountId, T::MaxSignatories>,
+    ) -> Result<Option<BoundedVec<T::AccountId, T::MaxSignatories>>, MultiSigAcctError> {
+        match authors_opt {
+            Some(mut authors) => {
+                // If authors == signatories in size, treat it as "all are authors" → force None
+                if authors.len() == signatories.len() {
+                    return Ok(None);
+                }
+                authors.sort();
+                Self::check_duplicates(&authors)?;
+                // Ensure each author is also a signatory
+                for author in &authors {
+                    if !signatories.contains(author) {
+                        return Err(MultiSigAcctError::ProposedAuthorNotSignatory);
+                    }
+                }
+                // Attempt to convert into a bounded vec
+                let authors_bounded =
+                    BoundedVec::try_from(authors).map_err(|_| MultiSigAcctError::AtMaxAuthors)?;
+                Ok(Some(authors_bounded))
+            }
+            None => Ok(None),
+        }
+    }
     pub fn add_authors(&mut self, authors: &[T::AccountId]) -> Result<(), MultiSigAcctError> {
-        self.validate_authors(authors)?;
+        self.validate_authors_list(authors)?;
         match &mut self.authors {
             Some(authors_bounded_vec) => {
                 let result = authors_bounded_vec.try_extend(authors.iter().cloned());
@@ -133,7 +147,7 @@ impl<T: Config> MultiSignatureAccount<T> {
             .expect("infinite length input; no invalid inputs for type; qed")
     }
 
-    fn validate_authors(&self, authors: &[T::AccountId]) -> Result<(), MultiSigAcctError> {
+    fn validate_authors_list(&self, authors: &[T::AccountId]) -> Result<(), MultiSigAcctError> {
         let current_authors_len = self.authors.as_ref().map(|p| p.len()).unwrap_or(0);
         let max_new_authors = self.signatories.len().saturating_sub(current_authors_len);
 
@@ -143,10 +157,20 @@ impl<T: Config> MultiSignatureAccount<T> {
         let existing_authors = self.authors.as_ref().map(|p| p.as_slice()).unwrap_or(&[]);
         for author in authors {
             if existing_authors.contains(author) {
-                return Err(MultiSigAcctError::AlreadyAuthor);
+                return Err(MultiSigAcctError::AccountAlreadyAuthor);
             }
-            if !self.is_signatory(author) {}
-            return Err(MultiSigAcctError::AccountNotSignatory);
+            if !self.is_signatory(author) {
+                return Err(MultiSigAcctError::ProposedAuthorNotSignatory);
+            }
+        }
+        Ok(())
+    }
+
+    /// checks for duplicates. must be sorted first
+    fn check_duplicates(account_ids: &Vec<T::AccountId>) -> Result<(), MultiSigAcctError> {
+        let has_duplicates = !account_ids.windows(2).all(|pair| pair[0] != pair[1]);
+        if has_duplicates {
+            return Err(MultiSigAcctError::FoundDuplicateSigners);
         }
         Ok(())
     }
@@ -164,20 +188,20 @@ impl<T: Config> MultiSignatureAccount<T> {
 )]
 
 pub enum MultiSigAcctError {
-    /// minimum signatories must be between 1 and the number of signatories
-    MinimumSignatoriesRangeError,
-    /// duplicates in Authors list
-    DuplicateAuthors,
-    /// a multi sig account with the **exact** same signatories already exists.
-    MultiSigAccountExists,
-    /// proposed account already in the list
-    AlreadyAuthor,
+    /// minimum of 2 signatories required
+    SignatoriesListTooShort,
+    /// minimum approvals must be between 1 and the number of signatories
+    MinimumApprovalsRangeError,
+    /// duplicates in  list
+    FoundDuplicateSigners,
+    /// account already in author list
+    AccountAlreadyAuthor,
     /// proposer length too long
     AuthorVecTooLong,
     /// error in extending authors
     AuthorExtendError,
     /// not part of the signatories of multi sig account so can not be proposer or sign
-    AccountNotSignatory,
+    ProposedAuthorNotSignatory,
     /// authors is at T::MaxSignatories - 1
     AtMaxAuthors,
     /// pending call  limit defined by T::MaxPendingTransactions
@@ -189,36 +213,26 @@ pub enum MultiSigAcctError {
 impl<T> From<MultiSigAcctError> for Error<T> {
     fn from(account_error: MultiSigAcctError) -> Self {
         match account_error {
-            MultiSigAcctError::MinimumSignatoriesRangeError => {
-                Error::AccountError(*b"MinSigRangeErr\0")
-            },
-            MultiSigAcctError::DuplicateAuthors => {
-                Error::AccountError(*b"DupAuthors\0\0\0\0\0")
-            },
-            MultiSigAcctError::MultiSigAccountExists => {
-                Error::AccountError(*b"MsaAlrdyExists\0")
-            },
-            MultiSigAcctError::AlreadyAuthor => {
-                Error::AccountError(*b"AlreaddyAuthor\0")
-            },
-            MultiSigAcctError::AuthorVecTooLong => {
-                Error::AccountError(*b"AuthorVecTooLng")
-            },
-            MultiSigAcctError::AuthorExtendError => {
-                Error::AccountError(*b"AuthExtendErr\0\0")
-            },
-            MultiSigAcctError::AccountNotSignatory => {
-                Error::AccountError(*b"AcctNotSigner\0\0")
-            },
-            MultiSigAcctError::AtMaxAuthors => {
-                Error::AccountError(*b"AtMaxAuthors\0\0\0")
-            },
+            MultiSigAcctError::SignatoriesListTooShort => {
+                Error::<T>::AccountErrorSignatoriesListTooShort
+            }
+            MultiSigAcctError::MinimumApprovalsRangeError => {
+                Error::<T>::AccountErrorMinimumApprovalsRangeError
+            }
+            MultiSigAcctError::FoundDuplicateSigners => {
+                Error::<T>::AccountErrorFoundDuplicateSigners
+            }
+            MultiSigAcctError::AccountAlreadyAuthor => Error::<T>::AccountErrorAccountAlreadyAuthor,
+            MultiSigAcctError::AuthorVecTooLong => Error::<T>::AccountErrorAuthorVecTooLong,
+            MultiSigAcctError::AuthorExtendError => Error::<T>::AccountErrorAuthorExtendError,
+            MultiSigAcctError::ProposedAuthorNotSignatory => {
+                Error::<T>::AccountErrorProposedAuthorNotSignatory
+            }
+            MultiSigAcctError::AtMaxAuthors => Error::<T>::AccountErrorMaxAuthors,
             MultiSigAcctError::AtPendingCallLimit => {
-                Error::AccountError(*b"PendCallLimit\0\0")
-            },
-            MultiSigAcctError::CallNotFound => {
-                Error::AccountError(*b"CallNotFound\0\0\0")
-            },
+                Error::<T>::AccountErrorReachedPendingCallLimit
+            }
+            MultiSigAcctError::CallNotFound => Error::<T>::AccountErrorCallNotFound,
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::pallet::Config;
+use crate::pallet::Error;
 use crate::BoundedCallOf;
 use codec::MaxEncodedLen;
 use frame_support::storage::bounded_btree_set::BoundedBTreeSet;
@@ -44,7 +45,7 @@ impl<T: Config> PendingCall<T> {
     pub fn add_approval(&mut self, author: T::AccountId) -> Result<u32, PendingCallError> {
         let result = self.approvals.try_insert(author);
         if result.is_err() {
-            return Err(PendingCallError::ExecutionError);
+            return Err(PendingCallError::ReachedBoundedApprovalLimit);
         }
         Ok(self.approvals.len() as u32)
     }
@@ -86,6 +87,16 @@ impl<T: Config> PendingCall<T> {
 )]
 #[scale_info(skip_type_params(T))]
 pub enum PendingCallError {
-    ExecutionError,
+    ReachedBoundedApprovalLimit,
     FailureEncodingCall,
+}
+impl<T> From<PendingCallError> for Error<T> {
+    fn from(err: PendingCallError) -> Self {
+        match err {
+            PendingCallError::ReachedBoundedApprovalLimit => {
+                Error::<T>::CallErrorReachedBoundedApprovalLimit
+            }
+            PendingCallError::FailureEncodingCall => Error::<T>::CallErrorFailureEncodingCall,
+        }
+    }
 }
