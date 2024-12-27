@@ -87,7 +87,16 @@ impl<T: Config> MultiSignatureAccount<T> {
 
     /// is the account_id a signatory of this multi sig account
     pub fn is_signatory(&self, account_id: &T::AccountId) -> bool {
+        // can be done as signatories.as_slice().binary_search(&account_id).is_ok()
+        // keep as .contains just to be extra safe just in case this receives an unordered signatories
         self.signatories.contains(account_id)
+    }
+
+    pub fn is_author(&self, account_id: &T::AccountId) -> bool {
+        match &self.authors {
+            Some(authors) => authors.contains(account_id),
+            None => self.signatories.contains(account_id),
+        }
     }
 
     /// deterministically construct the address of a multi sig account
@@ -101,20 +110,20 @@ impl<T: Config> MultiSignatureAccount<T> {
             .expect("infinite length input; no invalid inputs for type; qed")
     }
 
-    fn validate_authors_list(&self, authors: &[T::AccountId]) -> Result<(), MultiSigAcctError> {
+    fn validate_authors_list(&self, new_authors: &[T::AccountId]) -> Result<(), MultiSigAcctError> {
         let current_authors_len = self.authors.as_ref().map(|p| p.len()).unwrap_or(0);
-        let max_new_authors = self.signatories.len().saturating_sub(current_authors_len);
+        let open_author_slots = self.signatories.len().saturating_sub(current_authors_len);
 
-        if authors.len() >= max_new_authors {
+        if new_authors.len() >= open_author_slots {
             return Err(MultiSigAcctError::AuthorVecTooLong);
         }
         let existing_authors = self.authors.as_ref().map(|p| p.as_slice()).unwrap_or(&[]);
-        for author in authors {
+        for author in new_authors {
             if existing_authors.contains(author) {
                 return Err(MultiSigAcctError::AccountAlreadyAuthor);
             }
             if !self.is_signatory(author) {
-                return Err(MultiSigAcctError::AuthorNotSignatory);
+                return Err(MultiSigAcctError::AccountNotSignatory);
             }
         }
         Ok(())
@@ -142,7 +151,7 @@ pub enum MultiSigAcctError {
     /// error in extending authors
     AuthorExtendError,
     /// not part of the signatories of multi sig account so can not be proposer or sign
-    AuthorNotSignatory,
+    AccountNotSignatory,
     /// authors is at T::MaxSignatories - 1
     AtMaxAuthors,
     /// pending call  limit defined by T::MaxPendingTransactions
@@ -158,7 +167,7 @@ impl<T> From<MultiSigAcctError> for Error<T> {
             MultiSigAcctError::AccountAlreadyAuthor => Error::<T>::AccountErrorAccountAlreadyAuthor,
             MultiSigAcctError::AuthorVecTooLong => Error::<T>::AccountErrorAuthorVecTooLong,
             MultiSigAcctError::AuthorExtendError => Error::<T>::AccountErrorAuthorExtendError,
-            MultiSigAcctError::AuthorNotSignatory => Error::<T>::AuthorNotSignatory,
+            MultiSigAcctError::AccountNotSignatory => Error::<T>::AccountNotAuthor,
             MultiSigAcctError::AtMaxAuthors => Error::<T>::AccountErrorMaxAuthors,
             MultiSigAcctError::AtPendingCallLimit => {
                 Error::<T>::AccountErrorReachedPendingCallLimit

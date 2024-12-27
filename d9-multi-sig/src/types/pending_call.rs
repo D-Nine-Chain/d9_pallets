@@ -65,6 +65,13 @@ impl<T: Config> PendingCall<T> {
         result.map_err(|_| PendingCallError::FailureEncodingCall)
     }
 
+    pub fn decode_call(&self) -> Result<Box<<T as Config>::RuntimeCall>, PendingCallError> {
+        let call = <T as Config>::RuntimeCall::decode(&mut &self.call[..])
+            .map_err(|_| PendingCallError::FailureDecodingCall)?;
+
+        Ok(Box::new(call))
+    }
+
     /// Generate a unique, deterministic ID for the given call.
     ///
     /// The `call` bytes are combined with a domain-separation tag (`"d9-call-id"`)
@@ -89,6 +96,7 @@ impl<T: Config> PendingCall<T> {
 pub enum PendingCallError {
     ReachedBoundedApprovalLimit,
     FailureEncodingCall,
+    FailureDecodingCall,
 }
 impl<T> From<PendingCallError> for Error<T> {
     fn from(err: PendingCallError) -> Self {
@@ -97,6 +105,7 @@ impl<T> From<PendingCallError> for Error<T> {
                 Error::<T>::CallErrorReachedBoundedApprovalLimit
             }
             PendingCallError::FailureEncodingCall => Error::<T>::CallErrorFailureEncodingCall,
+            PendingCallError::FailureDecodingCall => Error::<T>::FailureDecodingCall,
         }
     }
 }
