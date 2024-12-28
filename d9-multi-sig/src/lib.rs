@@ -137,6 +137,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let signer = ensure_signed(origin)?;
 
+            // build and validate signatories bounded vec
             let mut bounded_signatories = BoundedVec::try_from(signatories)
                 .map_err(|_| Error::<T>::AccountErrorSignatoriesListTooLong)?;
             bounded_signatories.sort();
@@ -144,6 +145,7 @@ pub mod pallet {
 
             let authors = Self::prepare_authors(authors, &bounded_signatories)?;
 
+            //
             let msa: MultiSignatureAccount<T> =
                 MultiSignatureAccount::new(bounded_signatories, authors, min_approving_signatories)
                     .map_err(Error::<T>::from)?;
@@ -269,6 +271,32 @@ pub mod pallet {
 
                 Ok(())
             })
+        }
+
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+        pub fn remove_call(
+            origin: OriginFor<T>,
+            multi_sig_account: T::AccountId,
+            call_id: [u8; 32],
+        ) -> DispatchResult {
+            let signer = ensure_signed(origin)?;
+            MultiSignatureAccounts::<T>::try_mutate(&multi_sig_account, |msa_opt| {
+                let msa_ref = msa_opt
+                    .as_mut()
+                    .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                if !msa_ref.is_author(&signer) {
+                    return Err(Error::<T>::AccountNotAuthor.into());
+                }
+                let idx = msa_ref
+                    .pending_calls
+                    .iter()
+                    .position(|c| c.id == call_id)
+                    .ok_or(Error::<T>::CallNotFoundForMultiSigAccount)?;
+                msa_ref.pending_calls.remove(idx);
+                Ok::<(), Error<T>>(())
+            })?;
+            Ok(())
         }
     }
 
