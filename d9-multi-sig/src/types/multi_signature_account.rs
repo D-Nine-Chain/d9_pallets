@@ -3,7 +3,7 @@ use crate::pallet::Config;
 use crate::pallet::Error;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
+use frame_support::{pallet_prelude::*, BoundedVec};
 use sp_core::blake2_256;
 use sp_runtime::traits::TrailingZeroInput;
 
@@ -33,7 +33,7 @@ pub struct MultiSignatureAccount<T: Config> {
 
 impl<T: Config> MultiSignatureAccount<T> {
     pub fn new(
-        mut signatories: BoundedVec<T::AccountId, T::MaxSignatories>,
+        signatories: BoundedVec<T::AccountId, T::MaxSignatories>,
         authors: Option<BoundedVec<T::AccountId, T::MaxSignatories>>,
         min_approvals: u32,
     ) -> Result<Self, MultiSigAcctError> {
@@ -99,6 +99,16 @@ impl<T: Config> MultiSignatureAccount<T> {
         }
     }
 
+    pub fn adjust_min_approvals(
+        &mut self,
+        new_min_approvals: u32,
+    ) -> Result<(), MultiSigAcctError> {
+        if !(2..=self.signatories.len() as u32).contains(&new_min_approvals) {
+            return Err(MultiSigAcctError::MinApprovalsOutOfRange);
+        }
+        self.minimum_signatories = new_min_approvals;
+        Ok(())
+    }
     /// deterministically construct the address of a multi sig account
     ///
     /// signatories is ordered; the same set begets same address
@@ -158,6 +168,8 @@ pub enum MultiSigAcctError {
     AtPendingCallLimit,
     /// call is not in pending_calls
     CallNotFound,
+    /// when adjusting min approvals the new value must be between 2 and the number of signatories
+    MinApprovalsOutOfRange,
 }
 
 impl<T> From<MultiSigAcctError> for Error<T> {
@@ -173,6 +185,9 @@ impl<T> From<MultiSigAcctError> for Error<T> {
                 Error::<T>::AccountErrorReachedPendingCallLimit
             }
             MultiSigAcctError::CallNotFound => Error::<T>::AccountErrorCallNotFound,
+            MultiSigAcctError::MinApprovalsOutOfRange => {
+                Error::<T>::AccountErrorMinApprovalsOutOfRange
+            }
         }
     }
 }
