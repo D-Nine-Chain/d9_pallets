@@ -68,7 +68,7 @@ pub mod pallet {
         /// remove approval from transaction (multi signature account, approver)
         ApprovalRemoved(T::AccountId, T::AccountId),
         /// (executor)
-        CallExecuted([u8; 10]),
+        CallExecuted([u8; 32]),
     }
 
     #[pallet::error]
@@ -191,7 +191,10 @@ pub mod pallet {
             let signer = ensure_signed(origin)?;
             let mut msa = MultiSignatureAccounts::<T>::get(&multi_sig_account)
                 .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
-
+            let is_signatory = msa.is_signatory(&signer);
+            if !is_signatory {
+                return Err(Error::<T>::AccountNotSignatory.into());
+            }
             let mut pending_call = {
                 let idx = msa
                     .pending_calls
@@ -208,6 +211,7 @@ pub mod pallet {
 
             if approvals == msa.minimum_signatories {
                 Self::execute_call(&pending_call, &mut msa).map(|_info| ())?;
+                Self::deposit_event(Event::CallExecuted(pending_call.id.clone()));
             } else {
                 msa.add_call(pending_call)
                     .map_err(|_| Error::<T>::AccountErrorReachedPendingCallLimit)?;
@@ -226,7 +230,10 @@ pub mod pallet {
             let signer = ensure_signed(origin)?;
             let mut msa = MultiSignatureAccounts::<T>::get(&multi_sig_account)
                 .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
-
+            let is_signatory = msa.is_signatory(&signer);
+            if !is_signatory {
+                return Err(Error::<T>::AccountNotSignatory.into());
+            }
             let mut pending_call = {
                 let idx = msa
                     .pending_calls
@@ -398,7 +405,6 @@ pub mod pallet {
             call: &PendingCall<T>,
             msa: &mut MultiSignatureAccount<T>,
         ) -> DispatchResultWithPostInfo {
-            //todo implement this
             let decoded_call = call
                 .decode_call()
                 .map_err(|_| Error::<T>::FailureDecodingCall)?;
