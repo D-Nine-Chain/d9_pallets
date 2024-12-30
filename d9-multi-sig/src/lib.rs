@@ -8,6 +8,8 @@ pub use types::*;
 pub type BoundedCallOf<T> = BoundedVec<u8, <T as Config>::MaxCallSize>;
 #[frame_support::pallet]
 pub mod pallet {
+    use core::ops::Mul;
+
     use super::*;
     use frame_support::dispatch::{
         DispatchResult, DispatchResultWithPostInfo, Dispatchable, GetDispatchInfo, PostDispatchInfo,
@@ -211,7 +213,7 @@ pub mod pallet {
                 msa.add_call(pending_call)
                     .map_err(|_| Error::<T>::CallLimit)?;
             }
-
+            MultiSignatureAccounts::<T>::insert(&multi_sig_account, msa);
             Ok(().into())
         }
 
@@ -244,6 +246,7 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::ApprovalsLimitReached)?;
             msa.add_call(pending_call)
                 .map_err(|_| Error::<T>::CallLimit)?;
+            MultiSignatureAccounts::<T>::insert(&multi_sig_account, msa);
             Ok(().into())
         }
 
@@ -384,6 +387,8 @@ pub mod pallet {
                     }
                 });
             }
+
+            MultiSignatureAccounts::<T>::insert(msa.address.clone(), msa);
 
             Ok(())
         }

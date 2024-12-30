@@ -42,9 +42,8 @@ impl<T: Config> PendingCall<T> {
         })
     }
 
-    pub fn add_approval(&mut self, author: T::AccountId) -> Result<u32, PendingCallError> {
-        let result = self.approvals.try_insert(author);
-        if result.is_err() {
+    pub fn add_approval(&mut self, signatory: T::AccountId) -> Result<u32, PendingCallError> {
+        if self.approvals.try_insert(signatory).is_err() {
             return Err(PendingCallError::ReachedBoundedApprovalLimit);
         }
         Ok(self.approvals.len() as u32)

@@ -17,7 +17,7 @@ mod tests {
     use sp_core::H256;
     use sp_runtime::{
         testing::{Header, TestXt},
-        traits::{BlakeTwo256, IdentityLookup},
+        traits::{BlakeTwo256, Dispatchable, IdentityLookup},
     };
 
     // --- 1. Configure Each Pallet in the Test Runtime ---
@@ -41,7 +41,7 @@ mod tests {
         type BlockHashCount = ();
         type Version = ();
         type PalletInfo = PalletInfo;
-        type AccountData = ();
+        type AccountData = pallet_balances::AccountData<u64>;
         type OnNewAccount = ();
         type OnKilledAccount = ();
         type SystemWeightInfo = ();
@@ -79,7 +79,24 @@ mod tests {
         type RuntimeCall = RuntimeCall; // from construct_runtime
         type MaxCallSize = MaxCallSize;
     }
-
+    parameter_types! {
+        pub const ExistentialDeposit: u64 = 1;
+    }
+    impl pallet_balances::Config for TestRuntime {
+        type Balance = u64; // Or u128, if you prefer
+        type DustRemoval = ();
+        type RuntimeEvent = RuntimeEvent; // This is your event type from the system
+        type ExistentialDeposit = ExistentialDeposit;
+        type AccountStore = System; // Tells Balances which pallet/store holds account info
+        type WeightInfo = ();
+        type MaxLocks = ();
+        type MaxReserves = ();
+        type ReserveIdentifier = [u8; 8];
+        type MaxHolds = ();
+        type FreezeIdentifier = ();
+        type HoldIdentifier = ();
+        type MaxFreezes = ();
+    }
     // --- 2. Construct the Test Runtime ---
 
     construct_runtime!(
@@ -91,6 +108,7 @@ mod tests {
             System: system::{Pallet, Call, Config, Storage, Event<T>},
             Timestamp: timestamp::{Pallet, Call, Storage, Inherent},
             D9MultiSig: d9_multi_sig::{Pallet, Call, Storage, Event<T>},
+            Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         }
     );
 
@@ -108,13 +126,16 @@ mod tests {
         let mut t = frame_system::GenesisConfig::default()
             .build_storage::<TestRuntime>()
             .unwrap();
-
-        // note commented this out
-        // Optionally, set the timestamp to something nonzero
-        // timestamp::GenesisConfig::<TestRuntime> { minimum_period: 1 }
-        //     .assimilate_storage(&mut t)
-        //     .unwrap();
-
+        // Give some initial balances
+        pallet_balances::GenesisConfig::<TestRuntime> {
+            balances: vec![
+                (1, 1_000_000), // account #1 has 1,000,000 units
+                (2, 500_000),   // account #2 has 500,000 units
+                (3, 10_000),    // ...
+            ],
+        }
+        .assimilate_storage(&mut t)
+        .unwrap();
         // Extend with your pallet's config if necessary
         let mut ext = sp_io::TestExternalities::new(t);
         ext.execute_with(|| {
@@ -208,9 +229,38 @@ mod tests {
             // Check that the pending call is indeed stored
             let updated_msa = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
             assert_eq!(updated_msa.pending_calls.len(), 1);
+
+            let pending_call = &updated_msa.pending_calls[0];
+            assert_eq!(
+                pending_call.approvals.len(),
+                1,
+                "Should have 1 approval (from author)"
+            );
         });
     }
+    #[test]
+    fn balances_transfer_works() {
+        new_test_ext().execute_with(|| {
+            // 1) Check initial balances
+            assert_eq!(Balances::free_balance(&1), 1_000_000);
+            assert_eq!(Balances::free_balance(&2), 500_000);
 
+            // 2) Transfer 100_000 units from #1 to #2
+            let transfer_call = pallet_balances::Call::<TestRuntime>::transfer {
+                dest: 2,
+                value: 100_000,
+            };
+            let top_level_call = RuntimeCall::Balances(transfer_call);
+
+            // 3) Now .dispatch(...) is available
+            assert_ok!(top_level_call.dispatch(RawOrigin::Signed(1).into()));
+            // Dispatch as if #1 signed it
+
+            // 3) Check final balances
+            assert_eq!(Balances::free_balance(&1), 900_000);
+            assert_eq!(Balances::free_balance(&2), 600_000);
+        });
+    }
     #[test]
     fn add_approval_works_and_triggers_execute_call() {
         new_test_ext().execute_with(|| {
@@ -227,9 +277,25 @@ mod tests {
                 .next()
                 .unwrap();
 
-            // Author a call from account 1
-            let call = Box::new(RuntimeCall::Timestamp(timestamp::Call::set { now: 12345 }));
-            let _ = D9MultiSig::author_a_call(origin1.into(), msa_address.clone(), call);
+            // send tokens to the multi-sig account
+            let transfer_call = pallet_balances::Call::<TestRuntime>::transfer {
+                dest: msa_address.clone(),
+                value: 100_000,
+            };
+            let runtime_call = RuntimeCall::Balances(transfer_call);
+            assert_ok!(runtime_call.dispatch(RawOrigin::Signed(1).into()));
+
+            // Author a call for the multi-sig account to execute
+            let new_msa_runtime_call =
+                RuntimeCall::Balances(pallet_balances::Call::<TestRuntime>::transfer {
+                    dest: 3,
+                    value: 20_000,
+                });
+            let _ = D9MultiSig::author_a_call(
+                origin1.into(),
+                msa_address.clone(),
+                Box::new(new_msa_runtime_call),
+            );
 
             // Check pending calls
             msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
@@ -257,7 +323,7 @@ mod tests {
                 origin1.clone().into(),
                 vec![1, 2, 3],
                 None,
-                2
+                3
             ));
             let (msa_address, mut msa_data) = MultiSignatureAccounts::<TestRuntime>::iter()
                 .next()
@@ -279,7 +345,17 @@ mod tests {
                 msa_address,
                 call_id
             ));
+            let msa_data_2 = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
 
+            println!(
+                "approvals length {:?}",
+                msa_data_2.pending_calls[0].approvals.len()
+            );
+            assert_eq!(
+                msa_data_2.pending_calls[0].approvals.len(),
+                2,
+                "should be two approvals"
+            );
             // 4) Remove that approval from account 2
             assert_ok!(D9MultiSig::remove_approval(
                 origin2.into(),
@@ -297,7 +373,7 @@ mod tests {
             );
             assert_eq!(
                 updated_msa.pending_calls[0].approvals.len(),
-                0,
+                1,
                 "Account #2's approval should be removed"
             );
         });
@@ -374,7 +450,7 @@ mod tests {
 
             // 2) Adjust min approvals from 2 -> 3
             assert_ok!(D9MultiSig::adjust_min_approvals(
-                origin1.into(),
+                origin1.clone().into(),
                 msa_address,
                 3
             ));
@@ -384,6 +460,12 @@ mod tests {
             assert_eq!(
                 msa_data.minimum_signatories, 3,
                 "Minimum signatories should now be 3"
+            );
+
+            // does not allow min approval of 1
+            assert_noop!(
+                D9MultiSig::adjust_min_approvals(origin1.into(), msa_address, 1),
+                Error::<TestRuntime>::MinApprovalOutOfRange
             );
         });
     }
