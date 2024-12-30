@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
+mod tests;
 mod types;
 use frame_support::BoundedVec;
 pub use types::*;
@@ -32,7 +33,7 @@ pub mod pallet {
             + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
             + GetDispatchInfo
             + From<Call<Self>>;
-        type MaxCallSize: Get<u32>; //note what is a good value forn max call size
+        type MaxCallSize: Get<u32>;
     }
 
     /// the existent multi signature accounts
@@ -73,49 +74,43 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// duplicates in signers list
+        /// Signers list contains duplicates
         DuplicatesInList,
-        /// signer must be in signatories list when creating a new multi signature account
-        CallerMustBeInSignatoriesList,
-        /// a multi signature account with the same signatories already exists
-        StorageErrorMultiSignatureAccountAlreadyExists,
-        /// no multi signature account found for particular address
-        StorageErrorMultiSignatureAccountNotFound,
-        /// signatories must be at least 2
-        SignatoriesListTooShort,
-        /// signatories must be less than T::MaxSignatories
-        AccountErrorSignatoriesListTooLong,
-        /// min approvals must be greater than 1 and less than the number of signatories
-        MinimumApprovalOutOfRange,
-        /// proposed account already in the list
-        AccountErrorAccountAlreadyAuthor,
-        /// proposer length too long
-        AccountErrorAuthorVecTooLong,
-        /// error in extending authors
-        AccountErrorAuthorExtendError,
-        /// not author of multi signature account
+        /// Caller not in signatories
+        CallerNotSignatory,
+        /// Multi-sig account already exists
+        MSAAlreadyExists,
+        /// Multi-sig account not found
+        MSANotFound,
+        /// Must have at least 2 signers
+        SignatoriesTooShort,
+        /// Too many signers
+        SignatoriesTooLong,
+        /// Minimum approvals is out of range
+        MinApprovalOutOfRange,
+        /// Account is already an author
+        AccountAlreadyAuthor,
+        /// Authors list too long
+        AuthorVecTooLong,
+        /// Not an author
         AccountNotAuthor,
-        /// not signatory of multi signature account
+        /// Not a signatory
         AccountNotSignatory,
-        /// authors is at T::MaxSignatories - 1
+        /// Reached max possible authors
         AccountErrorMaxAuthors,
-        /// pending call limit defined by T::MaxPendingTransactions
-        AccountErrorReachedPendingCallLimit,
-        /// call is not in pending_calls
-        AccountErrorCallNotFound,
-        /// out of range for min approvals
-        AccountErrorMinApprovalsOutOfRange,
-        /// reached the limit of approvals set by T::MaxSignatories
-        CallErrorReachedBoundedApprovalLimit,
-        /// failure encoding call into `BoundedVec`. perhaps too large
-        CallErrorFailureEncodingCall,
-        /// user has reached the limit of multi signature accounts (T::MaxMultiSigsPerAccountId)
-        AccountAtMultiSigLimit([u8; 32]),
-        /// error in the creation of a pending call
+        /// Pending calls limit reached
+        CallLimit,
+        /// Approvals limit reached
+        ApprovalsLimitReached,
+        /// Failed to encode call
+        CallEncodingFailure,
+        /// This account hit its multi-sig limit
+        AccountAtMultiSigLimit,
+        /// Failed to create pending call
         FailedToCreatePendingCall,
-        ///call not found
-        CallNotFoundForMultiSigAccount,
-        /// decoding call error
+        /// Call not found for multi-sig
+        CallNotFound,
+        /// Failed to decode call
         FailureDecodingCall,
     }
 
@@ -138,8 +133,8 @@ pub mod pallet {
             let signer = ensure_signed(origin)?;
 
             // build and validate signatories bounded vec
-            let mut bounded_signatories = BoundedVec::try_from(signatories)
-                .map_err(|_| Error::<T>::AccountErrorSignatoriesListTooLong)?;
+            let mut bounded_signatories =
+                BoundedVec::try_from(signatories).map_err(|_| Error::<T>::SignatoriesTooLong)?;
             bounded_signatories.sort();
             Self::validate_signatories(&bounded_signatories, &signer, min_approving_signatories)?;
 
@@ -165,7 +160,7 @@ pub mod pallet {
             let signer = ensure_signed(origin)?;
             // validate
             let mut msa = MultiSignatureAccounts::<T>::get(&multi_sig_account)
-                .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                .ok_or(Error::<T>::MSANotFound)?;
 
             if !msa.is_author(&signer) {
                 return Err(Error::<T>::AccountNotAuthor.into());
@@ -175,7 +170,7 @@ pub mod pallet {
             let pending_call = PendingCall::<T>::new(call, signer.clone())
                 .map_err(|_| Error::<T>::FailedToCreatePendingCall)?;
             msa.add_call(pending_call.clone())
-                .map_err(|_| Error::<T>::AccountErrorReachedPendingCallLimit)?;
+                .map_err(|_| Error::<T>::CallLimit)?;
             MultiSignatureAccounts::<T>::insert(&multi_sig_account, msa);
             Self::deposit_event(Event::NewCallAuthored(signer, pending_call.id));
             Ok(())
@@ -190,7 +185,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let signer = ensure_signed(origin)?;
             let mut msa = MultiSignatureAccounts::<T>::get(&multi_sig_account)
-                .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                .ok_or(Error::<T>::MSANotFound)?;
             let is_signatory = msa.is_signatory(&signer);
             if !is_signatory {
                 return Err(Error::<T>::AccountNotSignatory.into());
@@ -200,21 +195,21 @@ pub mod pallet {
                     .pending_calls
                     .iter()
                     .position(|c| c.id == call_id)
-                    .ok_or(Error::<T>::CallNotFoundForMultiSigAccount)?;
+                    .ok_or(Error::<T>::CallNotFound)?;
                 let pending_call = msa.pending_calls.swap_remove(idx);
                 pending_call
             };
 
             let approvals = pending_call
                 .add_approval(signer.clone())
-                .map_err(|_| Error::<T>::CallErrorReachedBoundedApprovalLimit)?;
+                .map_err(|_| Error::<T>::ApprovalsLimitReached)?;
 
             if approvals == msa.minimum_signatories {
                 Self::execute_call(&pending_call, &mut msa).map(|_info| ())?;
                 Self::deposit_event(Event::CallExecuted(pending_call.id.clone()));
             } else {
                 msa.add_call(pending_call)
-                    .map_err(|_| Error::<T>::AccountErrorReachedPendingCallLimit)?;
+                    .map_err(|_| Error::<T>::CallLimit)?;
             }
 
             Ok(().into())
@@ -229,7 +224,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let signer = ensure_signed(origin)?;
             let mut msa = MultiSignatureAccounts::<T>::get(&multi_sig_account)
-                .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                .ok_or(Error::<T>::MSANotFound)?;
             let is_signatory = msa.is_signatory(&signer);
             if !is_signatory {
                 return Err(Error::<T>::AccountNotSignatory.into());
@@ -239,16 +234,16 @@ pub mod pallet {
                     .pending_calls
                     .iter()
                     .position(|c| c.id == call_id)
-                    .ok_or(Error::<T>::CallNotFoundForMultiSigAccount)?;
+                    .ok_or(Error::<T>::CallNotFound)?;
                 let pending_call = msa.pending_calls.swap_remove(idx);
                 pending_call
             };
 
             pending_call
                 .remove_approval(signer.clone())
-                .map_err(|_| Error::<T>::CallErrorReachedBoundedApprovalLimit)?;
+                .map_err(|_| Error::<T>::ApprovalsLimitReached)?;
             msa.add_call(pending_call)
-                .map_err(|_| Error::<T>::AccountErrorReachedPendingCallLimit)?;
+                .map_err(|_| Error::<T>::CallLimit)?;
             Ok(().into())
         }
 
@@ -262,16 +257,14 @@ pub mod pallet {
             let signer = ensure_signed(origin)?;
 
             MultiSignatureAccounts::<T>::try_mutate(&multi_sig_account, |msa_opt| {
-                let msa_ref = msa_opt
-                    .as_mut()
-                    .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                let msa_ref = msa_opt.as_mut().ok_or(Error::<T>::MSANotFound)?;
 
                 if !msa_ref.is_author(&signer) {
                     return Err(Error::<T>::AccountNotAuthor.into());
                 }
 
                 if !(2..=(msa_ref.signatories.len() as u32)).contains(&new_min_approval) {
-                    return Err(Error::<T>::AccountErrorMinApprovalsOutOfRange.into());
+                    return Err(Error::<T>::MinApprovalOutOfRange.into());
                 }
 
                 msa_ref.minimum_signatories = new_min_approval;
@@ -289,9 +282,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let signer = ensure_signed(origin)?;
             MultiSignatureAccounts::<T>::try_mutate(&multi_sig_account, |msa_opt| {
-                let msa_ref = msa_opt
-                    .as_mut()
-                    .ok_or(Error::<T>::StorageErrorMultiSignatureAccountNotFound)?;
+                let msa_ref = msa_opt.as_mut().ok_or(Error::<T>::MSANotFound)?;
                 if !msa_ref.is_author(&signer) {
                     return Err(Error::<T>::AccountNotAuthor.into());
                 }
@@ -299,7 +290,7 @@ pub mod pallet {
                     .pending_calls
                     .iter()
                     .position(|c| c.id == call_id)
-                    .ok_or(Error::<T>::CallNotFoundForMultiSigAccount)?;
+                    .ok_or(Error::<T>::CallNotFound)?;
                 msa_ref.pending_calls.remove(idx);
                 Ok::<(), Error<T>>(())
             })?;
@@ -316,10 +307,10 @@ pub mod pallet {
         ) -> Result<(), Error<T>> {
             let signatories_len = signatories.len() as u32;
             if signatories_len < 2 {
-                return Err(Error::<T>::SignatoriesListTooShort);
+                return Err(Error::<T>::SignatoriesTooShort);
             }
             if !(1..=signatories_len).contains(&min_approvals) {
-                return Err(Error::<T>::MinimumApprovalOutOfRange);
+                return Err(Error::<T>::MinApprovalOutOfRange);
             }
             let mut unique = BTreeSet::new();
             let mut found_creator = false;
@@ -332,16 +323,12 @@ pub mod pallet {
                 }
                 if let Some(user_msas) = UserMultiSigAccounts::<T>::get(signatory) {
                     if user_msas.len() as u32 >= T::MaxMultiSigsPerAccountId::get() {
-                        let bytes_array = signatory
-                            .encode()
-                            .try_into()
-                            .expect("signatory must be 32 bytes");
-                        return Err(Error::<T>::AccountAtMultiSigLimit(bytes_array));
+                        return Err(Error::<T>::AccountAtMultiSigLimit);
                     }
                 }
             }
             if !found_creator {
-                return Err(Error::<T>::CallerMustBeInSignatoriesList);
+                return Err(Error::<T>::CallerNotSignatory);
             }
             Ok(())
         }
@@ -383,7 +370,7 @@ pub mod pallet {
 
         fn add_multi_sig_account_to_storage(msa: MultiSignatureAccount<T>) -> Result<(), Error<T>> {
             if MultiSignatureAccounts::<T>::contains_key(&msa.address) {
-                return Err(Error::<T>::StorageErrorMultiSignatureAccountAlreadyExists.into());
+                return Err(Error::<T>::MSAAlreadyExists.into());
             }
             //todo verify this mutate. check to see if you can explicitly define the type within the closure e.g. Option<BoundedVec<T::AccountId, T::MaxMultiSigsPerAccountId>>
             for signatory in msa.signatories.iter() {

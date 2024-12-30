@@ -53,13 +53,13 @@ impl<T: Config> MultiSignatureAccount<T> {
             Some(authors_bounded_vec) => {
                 let result = authors_bounded_vec.try_extend(authors.iter().cloned());
                 if result.is_err() {
-                    return Err(MultiSigAcctError::AuthorExtendError);
+                    return Err(MultiSigAcctError::AuthorVecTooLong);
                 }
             }
             None => {
                 let bounded_authors_res = BoundedVec::try_from(authors.to_vec());
                 if bounded_authors_res.is_err() {
-                    return Err(MultiSigAcctError::AuthorExtendError);
+                    return Err(MultiSigAcctError::AuthorVecTooLong);
                 }
                 self.authors = Some(bounded_authors_res.unwrap());
             }
@@ -158,36 +158,28 @@ pub enum MultiSigAcctError {
     AccountAlreadyAuthor,
     /// proposer length too long
     AuthorVecTooLong,
-    /// error in extending authors
-    AuthorExtendError,
     /// not part of the signatories of multi sig account so can not be proposer or sign
     AccountNotSignatory,
     /// authors is at T::MaxSignatories - 1
     AtMaxAuthors,
     /// pending call  limit defined by T::MaxPendingTransactions
     AtPendingCallLimit,
-    /// call is not in pending_calls
-    CallNotFound,
     /// when adjusting min approvals the new value must be between 2 and the number of signatories
     MinApprovalsOutOfRange,
+    CallNotFound,
 }
 
 impl<T> From<MultiSigAcctError> for Error<T> {
     fn from(account_error: MultiSigAcctError) -> Self {
         match account_error {
-            MultiSigAcctError::SignatoriesListTooShort => Error::<T>::SignatoriesListTooShort,
-            MultiSigAcctError::AccountAlreadyAuthor => Error::<T>::AccountErrorAccountAlreadyAuthor,
-            MultiSigAcctError::AuthorVecTooLong => Error::<T>::AccountErrorAuthorVecTooLong,
-            MultiSigAcctError::AuthorExtendError => Error::<T>::AccountErrorAuthorExtendError,
+            MultiSigAcctError::SignatoriesListTooShort => Error::<T>::SignatoriesTooShort,
+            MultiSigAcctError::AccountAlreadyAuthor => Error::<T>::AccountAlreadyAuthor,
+            MultiSigAcctError::AuthorVecTooLong => Error::<T>::AuthorVecTooLong,
             MultiSigAcctError::AccountNotSignatory => Error::<T>::AccountNotAuthor,
             MultiSigAcctError::AtMaxAuthors => Error::<T>::AccountErrorMaxAuthors,
-            MultiSigAcctError::AtPendingCallLimit => {
-                Error::<T>::AccountErrorReachedPendingCallLimit
-            }
-            MultiSigAcctError::CallNotFound => Error::<T>::AccountErrorCallNotFound,
-            MultiSigAcctError::MinApprovalsOutOfRange => {
-                Error::<T>::AccountErrorMinApprovalsOutOfRange
-            }
+            MultiSigAcctError::AtPendingCallLimit => Error::<T>::CallLimit,
+            MultiSigAcctError::MinApprovalsOutOfRange => Error::<T>::MinApprovalOutOfRange,
+            MultiSigAcctError::CallNotFound => Error::<T>::CallNotFound,
         }
     }
 }

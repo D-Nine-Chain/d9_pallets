@@ -83,14 +83,7 @@ impl<T: Config> PendingCall<T> {
 }
 
 #[derive(
-    PartialEqNoBound,
-    EqNoBound,
-    CloneNoBound,
-    Encode,
-    Decode,
-    RuntimeDebugNoBound,
-    TypeInfo,
-    MaxEncodedLen,
+    PartialEqNoBound, EqNoBound, CloneNoBound, Encode, Decode, RuntimeDebugNoBound, TypeInfo,
 )]
 #[scale_info(skip_type_params(T))]
 pub enum PendingCallError {
@@ -101,10 +94,8 @@ pub enum PendingCallError {
 impl<T> From<PendingCallError> for Error<T> {
     fn from(err: PendingCallError) -> Self {
         match err {
-            PendingCallError::ReachedBoundedApprovalLimit => {
-                Error::<T>::CallErrorReachedBoundedApprovalLimit
-            }
-            PendingCallError::FailureEncodingCall => Error::<T>::CallErrorFailureEncodingCall,
+            PendingCallError::ReachedBoundedApprovalLimit => Error::<T>::ApprovalsLimitReached,
+            PendingCallError::FailureEncodingCall => Error::<T>::CallEncodingFailure,
             PendingCallError::FailureDecodingCall => Error::<T>::FailureDecodingCall,
         }
     }
