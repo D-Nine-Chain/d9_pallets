@@ -4,13 +4,7 @@
 mod tests {
     use super::super::*; // Import everything from the pallet's parent (lib.rs)
     use crate as d9_multi_sig; // Provide a local alias for the crate
-    use frame_support::{
-        assert_err, assert_noop, assert_ok, assert_storage_noop, construct_runtime,
-        parameter_types,
-        traits::{OnFinalize, OnInitialize},
-        weights::Weight,
-        BoundedVec,
-    };
+    use frame_support::{assert_err, assert_noop, assert_ok, construct_runtime, parameter_types};
     use frame_system as system;
     use frame_system::RawOrigin;
     use pallet_timestamp as timestamp;
@@ -117,13 +111,13 @@ mod tests {
     pub type TestUncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<TestRuntime>;
 
     // This is how we can build a signed extrinsic in tests:
-    pub type Extrinsic = TestXt<RuntimeCall, u64>;
+    // pub type Extrinsic = TestXt<RuntimeCall, u64>;
 
     // --- 3. Test Externalities Setup (Genesis State, etc.) ---
     // Utility function to create an environment for testing
     pub fn new_test_ext() -> sp_io::TestExternalities {
         // Any initial storage can be placed in the `system` module here
-        let mut t = frame_system::GenesisConfig::default()
+        let mut storage = frame_system::GenesisConfig::default()
             .build_storage::<TestRuntime>()
             .unwrap();
         // Give some initial balances
@@ -134,17 +128,10 @@ mod tests {
                 (3, 10_000),    // ...
             ],
         }
-        .assimilate_storage(&mut t)
+        .assimilate_storage(&mut storage)
         .unwrap();
         // Extend with your pallet's config if necessary
-        let mut ext = sp_io::TestExternalities::new(t);
-        ext.execute_with(|| {
-            // Set initial block number and timestamp, if needed
-            //note ccomment out
-            // System::set_block_number(1);
-            // Timestamp::set_timestamp(1);
-        });
-
+        let ext = sp_io::TestExternalities::new(storage);
         ext
     }
 
@@ -200,6 +187,46 @@ mod tests {
     }
 
     #[test]
+    fn create_msa_fails_without_caller_in_signatories() {
+        new_test_ext().execute_with(|| {
+            // signatories must have cardinality >= 2
+            let origin = RawOrigin::Signed(1);
+            let signatories = vec![2, 3, 4]; // only one signatory
+            let min_approvals = 1;
+
+            let result = D9MultiSig::create_multi_sig_account(
+                origin.into(),
+                signatories,
+                None,
+                min_approvals,
+            );
+
+            // Should fail with SignatoriesListTooShort
+            assert_noop!(result, Error::<TestRuntime>::CallerNotSignatory);
+        });
+    }
+
+    #[test]
+    fn create_msa_fails_with_duplicates() {
+        new_test_ext().execute_with(|| {
+            // signatories must have cardinality >= 2
+            let origin = RawOrigin::Signed(1);
+            let signatories = vec![1, 2, 2]; // only one signatory
+            let min_approvals = 1;
+
+            let result = D9MultiSig::create_multi_sig_account(
+                origin.into(),
+                signatories,
+                None,
+                min_approvals,
+            );
+
+            // Should fail with SignatoriesListTooShort
+            assert_noop!(result, Error::<TestRuntime>::DuplicatesInList);
+        });
+    }
+
+    #[test]
     fn author_a_call_works() {
         new_test_ext().execute_with(|| {
             // 1) Setup a multi-sig with signatories = [1,2,3]
@@ -238,6 +265,7 @@ mod tests {
             );
         });
     }
+
     #[test]
     fn balances_transfer_works() {
         new_test_ext().execute_with(|| {
@@ -325,7 +353,7 @@ mod tests {
                 None,
                 3
             ));
-            let (msa_address, mut msa_data) = MultiSignatureAccounts::<TestRuntime>::iter()
+            let (msa_address, msa_data) = MultiSignatureAccounts::<TestRuntime>::iter()
                 .next()
                 .unwrap();
 
@@ -336,23 +364,18 @@ mod tests {
                 msa_address,
                 call
             ));
-
-            // 3) Now account 2 adds an approval
-            msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
-            let call_id = msa_data.pending_calls[0].id;
+            let msa_data_after_call =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            let call_id = msa_data_after_call.pending_calls[0].id;
             assert_ok!(D9MultiSig::add_approval(
                 origin2.clone().into(),
                 msa_address,
                 call_id
             ));
-            let msa_data_2 = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
-
-            println!(
-                "approvals length {:?}",
-                msa_data_2.pending_calls[0].approvals.len()
-            );
+            let msa_data_after_approval =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
             assert_eq!(
-                msa_data_2.pending_calls[0].approvals.len(),
+                msa_data_after_approval.pending_calls[0].approvals.len(),
                 2,
                 "should be two approvals"
             );
@@ -362,17 +385,17 @@ mod tests {
                 msa_address,
                 call_id
             ));
-
+            let msa_data_after_removal =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
             // 5) Inspect pending call approvals. The call should still be pending,
             //    but with fewer approvals now.
-            let updated_msa = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
             assert_eq!(
-                updated_msa.pending_calls.len(),
+                msa_data_after_removal.pending_calls.len(),
                 1,
                 "Call should remain in pending_calls"
             );
             assert_eq!(
-                updated_msa.pending_calls[0].approvals.len(),
+                msa_data_after_removal.pending_calls[0].approvals.len(),
                 1,
                 "Account #2's approval should be removed"
             );

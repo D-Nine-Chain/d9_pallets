@@ -8,8 +8,6 @@ pub use types::*;
 pub type BoundedCallOf<T> = BoundedVec<u8, <T as Config>::MaxCallSize>;
 #[frame_support::pallet]
 pub mod pallet {
-    use core::ops::Mul;
-
     use super::*;
     use frame_support::dispatch::{
         DispatchResult, DispatchResultWithPostInfo, Dispatchable, GetDispatchInfo, PostDispatchInfo,
