@@ -7,7 +7,7 @@ use sp_std::prelude::*;
 mod types;
 pub use pallet::*;
 pub use types::*;
-
+mod tests;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;

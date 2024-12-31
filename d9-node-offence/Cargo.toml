@@ -17,7 +17,10 @@ serde = { version = "1.0.163", features = ["derive"], optional = true }
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", optional = true, branch = "polkadot-v0.9.42" }
 frame-support = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 frame-system = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
-pallet-d9-node-voting = { version = "0.2.0", path = "../d9-node-voting" }
+pallet-d9-node-voting = { version = "0.2.0", default-features = false, path = "../d9-node-voting" }
+pallet-d9-node-rewards = { version = "^1.0.0", path = "../d9-node-rewards", default-features = false }
+pallet-contracts = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+pallet-d9-balances = { version = "0.2.0", default-features = false, path = "../d9-balances" }
 pallet-im-online = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-runtime = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-std = { version = "5.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
@@ -48,6 +51,8 @@ std = [
     "sp-api/std",
     "sp-staking/std",
     "pallet-im-online/std",
+    "pallet-d9-node-voting/std",
+    "pallet-d9-balances/std",
 ]
 
 runtime-benchmarks = [

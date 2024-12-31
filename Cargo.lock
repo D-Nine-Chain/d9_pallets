@@ -501,6 +501,9 @@ dependencies = [
  "frame-system",
  "hex",
  "impl-trait-for-tuples",
+ "pallet-contracts",
+ "pallet-d9-balances",
+ "pallet-d9-node-rewards",
  "pallet-d9-node-voting",
  "pallet-im-online",
  "pallet-session",
@@ -1774,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-rewards"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",

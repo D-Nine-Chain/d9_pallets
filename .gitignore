@@ -1,3 +1,5 @@
 **/target/
 .prettierrc
 **/.DS_Store
+.vscode
+.zed
