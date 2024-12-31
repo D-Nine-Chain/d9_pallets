@@ -4,13 +4,13 @@
 mod tests {
     use super::super::*; // Import everything from the pallet's parent (lib.rs)
     use crate as d9_multi_sig; // Provide a local alias for the crate
-    use frame_support::{assert_err, assert_noop, assert_ok, construct_runtime, parameter_types};
+    use frame_support::{assert_noop, assert_ok, construct_runtime, parameter_types};
     use frame_system as system;
     use frame_system::RawOrigin;
     use pallet_timestamp as timestamp;
     use sp_core::H256;
     use sp_runtime::{
-        testing::{Header, TestXt},
+        testing::Header,
         traits::{BlakeTwo256, Dispatchable, IdentityLookup},
     };
 
@@ -265,6 +265,36 @@ mod tests {
             );
         });
     }
+    #[test]
+    fn author_a_call_fails_if_not_author() {
+        new_test_ext().execute_with(|| {
+            // 1) Setup a multi-sig with signatories = [1,2,3]
+            //    Because we need a multi-sig account to add a call to it.
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            let _ = D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3],
+                Some(vec![1]), // only 1 is an explicit author
+                2,             // min_approvals
+            );
+            // Retrieve the newly created MSA address
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .unwrap();
+
+            // 2) Prepare a "dummy" call
+            //    For example, a timestamp call with no arguments.
+            let call = Box::new(RuntimeCall::Timestamp(timestamp::Call::set { now: 9999 }));
+
+            // 3) Act
+            let result =
+                D9MultiSig::author_a_call(origin2.into(), msa_address.clone(), call.clone());
+
+            // 4) Assert
+            assert_noop!(result, Error::<TestRuntime>::AccountNotAuthor);
+        });
+    }
 
     #[test]
     fn balances_transfer_works() {
@@ -301,10 +331,11 @@ mod tests {
                 None,
                 2,
             );
-            let (msa_address, mut msa_data) = MultiSignatureAccounts::<TestRuntime>::iter()
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
                 .next()
                 .unwrap();
-
+            let msa_vec = UserMultiSigAccounts::<TestRuntime>::get(1).unwrap();
+            assert!(msa_vec.contains(&msa_address));
             // send tokens to the multi-sig account
             let transfer_call = pallet_balances::Call::<TestRuntime>::transfer {
                 dest: msa_address.clone(),
@@ -326,7 +357,7 @@ mod tests {
             );
 
             // Check pending calls
-            msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
             assert_eq!(msa_data.pending_calls.len(), 1);
             let call_id = msa_data.pending_calls[0].id;
 
@@ -335,8 +366,9 @@ mod tests {
             assert_ok!(result);
 
             // After execution, that call should be removed from the pending_calls
-            msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
-            assert_eq!(msa_data.pending_calls.len(), 0);
+            let msa_data_post_execution =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            assert_eq!(msa_data_post_execution.pending_calls.len(), 0);
         });
     }
 
@@ -353,7 +385,7 @@ mod tests {
                 None,
                 3
             ));
-            let (msa_address, msa_data) = MultiSignatureAccounts::<TestRuntime>::iter()
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
                 .next()
                 .unwrap();
 
