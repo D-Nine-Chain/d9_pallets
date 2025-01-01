@@ -4,7 +4,7 @@ use crate::pallet::Error;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{pallet_prelude::*, BoundedVec};
-use sp_core::blake2_256;
+use sp_io::hashing::blake2_256;
 use sp_runtime::traits::TrailingZeroInput;
 
 #[derive(

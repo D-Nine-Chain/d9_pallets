@@ -6,8 +6,8 @@ use frame_support::storage::bounded_btree_set::BoundedBTreeSet;
 use frame_support::storage::bounded_vec::BoundedVec;
 use frame_support::RuntimeDebugNoBound;
 use frame_support::{inherent::Vec, pallet_prelude::*};
-use sp_core::blake2_256;
-
+use sp_io::hashing::blake2_256;
+use sp_std::boxed::Box;
 #[derive(
     PartialEqNoBound,
     EqNoBound,
