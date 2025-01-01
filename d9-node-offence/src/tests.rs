@@ -2,17 +2,23 @@
 mod tests {
     use super::super::*; // Import everything from the pallet's parent (lib.rs)
     use crate as d9_node_offence; // Provide a local alias for the crate
-    use frame_support::{assert_noop, assert_ok, construct_runtime, parameter_types};
+    use frame_support::{
+        assert_noop, assert_ok, construct_runtime, parameter_types,
+        traits::{ConstBool, Nothing},
+        weights::IdentityFee,
+        PalletId,
+    };
     use frame_system as system;
-    use frame_system::RawOrigin;
+    use frame_system::{EnsureRoot, RawOrigin};
     use sp_core::H256;
+    use sp_runtime::transaction_validity::TransactionPriority;
     use sp_runtime::{
         testing::Header,
-        traits::{BlakeTwo256, Dispatchable, IdentityLookup},
+        traits::{BlakeTwo256, IdentityLookup},
     };
-
+    use sp_std::vec::Vec;
     // --- 1. Configure Each Pallet in the Test Runtime ---
-
+    use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
     // System Config
     impl system::Config for TestRuntime {
         type BaseCallFilter = frame_support::traits::Everything;
@@ -46,11 +52,19 @@ mod tests {
         pub const Offset: u64 = 1;
     }
     type PeriodicSessions = pallet_session::PeriodicSessions<Period, Offset>;
-
+    parameter_types! {
+        pub const NodeRewardPalletId: PalletId = PalletId(*b"nde/rwrd");
+    }
+    impl pallet_d9_node_rewards::Config for TestRuntime {
+        type CurrencySubUnits = CurrencySubUnits;
+        type Currency = Balances;
+        type RuntimeEvent = RuntimeEvent;
+        type PalletId = NodeRewardPalletId;
+    }
     parameter_types! {
         pub const ImOnlineUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
-        pub const MaxKeys: u32 = MAX_VALIDATOR_NODES + 10;
-        pub const MaxPeerInHeartbeats: u32 = MAX_VALIDATOR_NODES + 10;
+        pub const MaxKeys: u32 = 10;
+        pub const MaxPeerInHeartbeats: u32 =  10;
         pub const MaxPeerDataEncodingSize: u32 = 1024;
     }
     impl pallet_im_online::Config for TestRuntime {
@@ -60,12 +74,27 @@ mod tests {
         type ValidatorSet = Historical;
         type ReportUnresponsiveness = ();
         type UnsignedPriority = ImOnlineUnsignedPriority;
-        type WeightInfo = pallet_im_online::weights::SubstrateWeight<Runtime>;
+        type WeightInfo = pallet_im_online::weights::SubstrateWeight<TestRuntime>;
         type MaxKeys = MaxKeys;
         type MaxPeerInHeartbeats = MaxPeerInHeartbeats;
         type MaxPeerDataEncodingSize = MaxPeerDataEncodingSize;
     }
-    impl pallet_session::historical::Config for Runtime {
+
+    parameter_types! {
+        pub FeeMultiplier: Multiplier = Multiplier::one();
+       pub const OperationalFeeMultiplier:u8 = 5;
+    }
+    impl pallet_transaction_payment::Config for TestRuntime {
+        type RuntimeEvent = RuntimeEvent;
+        type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
+        type OperationalFeeMultiplier = OperationalFeeMultiplier;
+        type WeightToFee = IdentityFee<u64>;
+        type LengthToFee = IdentityFee<u64>;
+        type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
+    }
+
+    impl pallet_insecure_randomness_collective_flip::Config for TestRuntime {}
+    impl pallet_session::historical::Config for TestRuntime {
         type FullIdentification = pallet_d9_node_voting::ValidatorVoteStats<TestRuntime>;
         type FullIdentificationOf = pallet_d9_node_voting::ValidatorStatsOf<TestRuntime>;
     }
@@ -80,14 +109,14 @@ mod tests {
     }
     impl pallet_contracts::Config for TestRuntime {
         type Time = Timestamp;
-        type Randomness = RandomnessCollectiveFlip;
+        type Randomness = Randomness;
         type Currency = Balances;
         type RuntimeEvent = RuntimeEvent;
         type RuntimeCall = RuntimeCall;
         type CallFilter = Nothing;
         type WeightPrice = pallet_transaction_payment::Pallet<Self>;
         type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
-        type ChainExtension = D9ChainExtension;
+        type ChainExtension = ();
         type Schedule = Schedule;
         type CallStack = [pallet_contracts::Frame<Self>; 5];
         type DepositPerByte = DepositPerByte;
@@ -105,9 +134,9 @@ mod tests {
     }
 
     parameter_types! {
-        pub const CurrencySubUnits: u128 = 1_000_000_000_000;
+        pub const CurrencySubUnits: u64 = 1_000_000_000_000;
         pub const MaxCandidates: u32 = 10;
-        pub const MaxValidatorNodes: u32 = 10;
+        pub const MaxValidatorNodes: u32 =10;
     }
     impl pallet_d9_node_voting::Config for TestRuntime {
         type CurrencySubUnits = CurrencySubUnits;
@@ -118,7 +147,33 @@ mod tests {
         type NodeRewardManager = NodeRewards;
     }
 
-    impl pallet_d9_node_offence::Config for TestRuntime {
+    // parameter_types! {
+    //     //note - MotionDuration constant may need to be changed to correspond to some other value, for now it will be 1 HOUR (hour in block time based on corresponding Blocks per hour )
+    //     pub const MotionDuration: BlockNumber = WEEK;
+    //     pub const MaxMembers: u32 = 100;
+    // }
+    // impl pallet_collective::Config for TestRuntime {
+    //     type RuntimeOrigin = RuntimeOrigin;
+    //     type Proposal = RuntimeCall;
+    //     type RuntimeEvent = RuntimeEvent;
+    //     type MotionDuration = MotionDuration;
+    //     type MaxProposals = ();
+    //     type MaxMembers = MaxMembers;
+    //     type DefaultVote = pallet_collective::MoreThanMajorityThenPrimeDefaultVote;
+    //     type WeightInfo = ();
+    //     type SetMembersOrigin = EnsureRoot<Self::AccountId>;
+    //     type MaxProposalWeight = ();
+    // }
+
+    parameter_types! {
+        pub const MaxReferralDepth: u32 = 19;
+    }
+    impl pallet_d9_referral::Config for TestRuntime {
+        type RuntimeEvent = RuntimeEvent;
+        type MaxReferralDepth = MaxReferralDepth;
+        type SetMaxReferralDepthOrigin = ();
+    }
+    impl d9_node_offence::Config for TestRuntime {
         type MaxOffendersPerSession = frame_support::traits::ConstU32<10>;
         type RuntimeEvent = RuntimeEvent;
     }
@@ -132,7 +187,16 @@ mod tests {
         type MinimumPeriod = MinimumPeriod;
         type WeightInfo = ();
     }
+    impl pallet_d9_balances::ReferralManager<Runtime, ()> for TestRuntime {
+        fn get_parent(account: &AccountId) -> Option<AccountId> {
+            pallet_d9_referral::Pallet::<Runtime>::get_parent(account)
+        }
 
+        fn create_referral_relationship(parent: &AccountId, child: &AccountId) {
+            let _ =
+                pallet_d9_referral::Pallet::<Runtime>::create_referral_relationship(parent, child);
+        }
+    }
     parameter_types! {
         pub const ExistentialDeposit: u64 = 1;
     }
@@ -150,6 +214,7 @@ mod tests {
         type FreezeIdentifier = ();
         type HoldIdentifier = ();
         type MaxFreezes = ();
+        type ReferralManager = Self;
     }
     // --- 2. Construct the Test Runtime ---
 
@@ -167,6 +232,10 @@ mod tests {
             NodeRewards: pallet_d9_node_rewards::{Pallet, Call, Storage, Event<T>},
             Timestamp: timestamp::{Pallet, Call, Storage, Inherent},
             Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
+            Historical: pallet_session_historical::{Pallet},
+            Referral: pallet_d9_referral::{Pallet, Call, Storage, Event<T>},
+            // Collective: pallet_collective::{Pallet, Call, Storage, Event<T>},
+            Randomness: pallet_insecure_randomness_collective_flip::{Pallet,  Storage},
         }
     );
 
@@ -185,7 +254,7 @@ mod tests {
             .build_storage::<TestRuntime>()
             .unwrap();
         // Give some initial balances
-        pallet_balances::GenesisConfig::<TestRuntime> {
+        pallet_d9_balances::GenesisConfig::<TestRuntime> {
             balances: vec![
                 (1, 1_000_000), // account #1 has 1,000,000 units
                 (2, 500_000),   // account #2 has 500,000 units
