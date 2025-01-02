@@ -141,7 +141,6 @@ pub mod pallet {
 
             let authors = Self::prepare_authors(authors, &bounded_signatories)?;
 
-            //
             let msa: MultiSignatureAccount<T> =
                 MultiSignatureAccount::new(bounded_signatories, authors, min_approving_signatories)
                     .map_err(Error::<T>::from)?;
@@ -166,7 +165,6 @@ pub mod pallet {
             if !msa.is_author(&signer) {
                 return Err(Error::<T>::AccountNotAuthor.into());
             }
-
             //prepare the call
             let pending_call = PendingCall::<T>::new(call, signer.clone())
                 .map_err(|_| Error::<T>::FailedToCreatePendingCall)?;
@@ -213,6 +211,7 @@ pub mod pallet {
                     .map_err(|_| Error::<T>::CallLimit)?;
             }
             MultiSignatureAccounts::<T>::insert(&multi_sig_account, msa);
+            Self::deposit_event(Event::ApprovalAdded(multi_sig_account, signer));
             Ok(().into())
         }
 
@@ -255,9 +254,8 @@ pub mod pallet {
             origin: OriginFor<T>,
             multi_sig_account: T::AccountId,
             new_min_approval: u32,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let signer = ensure_signed(origin)?;
-
             MultiSignatureAccounts::<T>::try_mutate(&multi_sig_account, |msa_opt| {
                 let msa_ref = msa_opt.as_mut().ok_or(Error::<T>::MSANotFound)?;
 
@@ -271,7 +269,17 @@ pub mod pallet {
 
                 msa_ref.minimum_signatories = new_min_approval;
 
-                Ok(())
+                let mut i = 0;
+                while i < msa_ref.pending_calls.len() {
+                    if msa_ref.pending_calls[i].approvals.len() == new_min_approval as usize {
+                        let pending_call = msa_ref.pending_calls.swap_remove(i);
+                        Self::execute_call(&pending_call, msa_ref).map(|_info| ())?;
+                        Self::deposit_event(Event::CallExecuted(pending_call.id));
+                    } else {
+                        i += 1;
+                    }
+                }
+                Ok(().into())
             })
         }
 

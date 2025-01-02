@@ -305,14 +305,14 @@ mod tests {
             assert_eq!(Balances::free_balance(&2), 500_000);
 
             // 2) Transfer 100_000 units from #1 to #2
-            let transfer_call = pallet_balances::Call::<TestRuntime>::transfer {
+            let transfer_call = pallet_balances::Call::transfer {
                 dest: 2,
                 value: 100_000,
             };
-            let top_level_call = RuntimeCall::Balances(transfer_call);
+            let runtime_call = RuntimeCall::Balances(transfer_call);
 
             // 3) Now .dispatch(...) is available
-            assert_ok!(top_level_call.dispatch(RawOrigin::Signed(1).into()));
+            assert_ok!(runtime_call.dispatch(RawOrigin::Signed(1).into()));
             // Dispatch as if #1 signed it
 
             // 3) Check final balances
@@ -338,7 +338,7 @@ mod tests {
             let msa_vec = UserMultiSigAccounts::<TestRuntime>::get(1).unwrap();
             assert!(msa_vec.contains(&msa_address));
             // send tokens to the multi-sig account
-            let transfer_call = pallet_balances::Call::<TestRuntime>::transfer {
+            let transfer_call = pallet_balances::Call::transfer {
                 dest: msa_address.clone(),
                 value: 100_000,
             };
@@ -346,11 +346,10 @@ mod tests {
             assert_ok!(runtime_call.dispatch(RawOrigin::Signed(1).into()));
 
             // Author a call for the multi-sig account to execute
-            let new_msa_runtime_call =
-                RuntimeCall::Balances(pallet_balances::Call::<TestRuntime>::transfer {
-                    dest: 3,
-                    value: 20_000,
-                });
+            let new_msa_runtime_call = RuntimeCall::Balances(pallet_balances::Call::transfer {
+                dest: 3,
+                value: 20_000,
+            });
             let _ = D9MultiSig::author_a_call(
                 origin1.into(),
                 msa_address.clone(),
@@ -372,7 +371,83 @@ mod tests {
             assert_eq!(msa_data_post_execution.pending_calls.len(), 0);
         });
     }
+    #[test]
+    fn adjust_min_approvals_executes_call_when_lowered() {
+        new_test_ext().execute_with(|| {
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            assert_ok!(D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3],
+                None, // All signatories are authors
+                3     // min_approvals = 3
+            ));
+            // Retrieve the newly created MSA address
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .expect("Should have created one MSA");
 
+            let deposit_call = pallet_balances::Call::transfer {
+                dest: msa_address,
+                value: 50_000,
+            };
+            let deposit_call_wrapped = RuntimeCall::Balances(deposit_call);
+            assert_ok!(deposit_call_wrapped.dispatch(origin1.clone().into()));
+
+            let pending_transfer_call = pallet_balances::Call::transfer {
+                dest: 4, // user #4 (has 0 at start)
+                value: 20_000,
+            };
+            let runtime_call = RuntimeCall::Balances(pending_transfer_call);
+            // Author it as user #1
+            assert_ok!(D9MultiSig::author_a_call(
+                origin1.clone().into(),
+                msa_address,
+                Box::new(runtime_call)
+            ));
+
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            let call_id = msa_data.pending_calls[0].id;
+            assert_ok!(D9MultiSig::add_approval(
+                origin2.clone().into(),
+                msa_address,
+                call_id
+            ));
+
+            // The call should still be pending (2 approvals < min_approvals=3)
+            let msa_data_after_approval =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            assert_eq!(msa_data_after_approval.pending_calls.len(), 1);
+
+            // ------------------------------------------------------
+            // 5) Lower min_approvals from 3 => 2
+            //    Because the call already has 2 approvals, it should auto-execute now.
+            // ------------------------------------------------------
+            assert_ok!(D9MultiSig::adjust_min_approvals(
+                origin1.clone().into(),
+                msa_address,
+                2 // new min_approval
+            ));
+
+            // ------------------------------------------------------
+            // 6) Confirm the call executed:
+            //    - The pending call is removed
+            //    - User #4's balance is increased by 20_000
+            // ------------------------------------------------------
+            let msa_data_post_lowering =
+                MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
+            assert_eq!(
+                msa_data_post_lowering.pending_calls.len(),
+                0,
+                "Pending call should have been removed after execution"
+            );
+            assert_eq!(
+                Balances::free_balance(4),
+                20_000,
+                "User #4 should receive the 20_000 transfer"
+            );
+        });
+    }
     // More tests for remove_approval, adjust_min_approvals, remove_call, etc. can follow
     #[test]
     fn remove_approval_works() {
