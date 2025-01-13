@@ -1,0 +1,14 @@
+{
+    "folders": [
+		{
+			"name": "pallets",
+			"path": "."
+		}
+	],
+    "settings": {
+        "cSpell.words": [
+            "delegatees",
+            "Perquintill"
+        ]
+    }
+}
