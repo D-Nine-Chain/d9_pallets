@@ -501,6 +501,7 @@ dependencies = [
  "frame-system",
  "hex",
  "impl-trait-for-tuples",
+ "pallet-balances",
  "pallet-contracts",
  "pallet-d9-balances",
  "pallet-d9-node-rewards",

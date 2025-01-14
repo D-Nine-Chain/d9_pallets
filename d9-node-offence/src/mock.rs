@@ -4,11 +4,12 @@
 use crate as d9_node_offence; // rename the crate for clarity
 use frame_support::{
     construct_runtime, parameter_types,
-    traits::{ConstU32, ConstU64, Everything, OnFinalize, OnInitialize},
+    traits::{ConstBool, ConstU32, ConstU64, Everything, Nothing, OnFinalize, OnInitialize},
     weights::Weight,
 };
 use frame_system as system;
 use pallet_session::{historical as session_historical, PeriodicSessions};
+use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 use sp_core::H256;
 use sp_runtime::{
     testing::{Header, TestXt, UintAuthorityId},
@@ -19,7 +20,6 @@ use sp_staking::{
     offence::{OffenceError, ReportOffence},
     SessionIndex,
 };
-
 // --------- Types for the mock runtime --------- //
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<TestRuntime>;
@@ -28,6 +28,7 @@ type Block = frame_system::mocking::MockBlock<TestRuntime>;
 // You can use a simpler type alias for convenience.
 pub type AccountId = u64;
 pub type BlockNumber = u64;
+pub type Balance = u64;
 // --------- Define the mock runtime --------- //
 construct_runtime!(
     pub struct TestRuntime where
@@ -45,6 +46,8 @@ construct_runtime!(
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
         Historical: pallet_session::historical::{Pallet},
+        Timestamp: pallet_timestamp::{Pallet},
+        Randomness: pallet_insecure_randomness_collective_flip::{Pallet, Storage},
     }
 );
 
@@ -78,7 +81,7 @@ impl system::Config for TestRuntime {
     type OnSetCode = ();
     type MaxConsumers = ConstU32<16>;
 }
-
+impl pallet_insecure_randomness_collective_flip::Config for TestRuntime {}
 pub struct TestSessionHandler;
 
 impl pallet_session::SessionHandler<AccountId> for TestSessionHandler {
@@ -161,7 +164,40 @@ type Offence = crate::UnresponsivenessOffence<IdentificationTuple>;
 parameter_types! {
     pub static Offences: Vec<(Vec<u64>, Offence)> = vec![];
 }
-
+parameter_types! {
+    pub const DepositPerItem: u64 = 1000   ;
+    pub const DepositPerByte: u64 = 1000;
+    pub const DefaultDepositLimit: u64 = 1000000000;
+    pub Schedule: pallet_contracts::Schedule<TestRuntime> = Default::default();
+   pub const MaxCodeLen: u32 =  500 * 1024;
+   pub const MaxDebugBufferLen:u32 = 2 * 1024 * 1024;
+   pub const MaxStorageKeyLen:u32 = 128;
+}
+impl pallet_contracts::Config for TestRuntime {
+    type Time = Timestamp;
+    type Randomness = Randomness;
+    type Currency = Balances;
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type CallFilter = Nothing;
+    type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+    type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
+    type ChainExtension = ();
+    type Schedule = Schedule;
+    type CallStack = [pallet_contracts::Frame<Self>; 5];
+    type DepositPerByte = DepositPerByte;
+    type DefaultDepositLimit = DefaultDepositLimit;
+    type DepositPerItem = DepositPerItem;
+    type AddressGenerator = pallet_contracts::DefaultAddressGenerator;
+    type MaxCodeLen = MaxCodeLen;
+    type MaxStorageKeyLen = MaxStorageKeyLen;
+    type UnsafeUnstableInterface = ConstBool<false>;
+    type MaxDebugBufferLen = MaxDebugBufferLen;
+    // #[cfg(not(feature = "runtime-benchmarks"))]
+    // type Migrations = ();
+    #[cfg(feature = "runtime-benchmarks")]
+    type Migrations = (NoopMigration<1>, NoopMigration<2>);
+}
 /// A mock offence report handler.
 pub struct OffenceHandler;
 impl ReportOffence<u64, IdentificationTuple, Offence> for OffenceHandler {
@@ -173,6 +209,12 @@ impl ReportOffence<u64, IdentificationTuple, Offence> for OffenceHandler {
     fn is_known_offence(_offenders: &[IdentificationTuple], _time_slot: &SessionIndex) -> bool {
         false
     }
+}
+impl pallet_timestamp::Config for TestRuntime {
+    type Moment = u64;
+    type OnTimestampSet = ();
+    type MinimumPeriod = ConstU64<1>;
+    type WeightInfo = ();
 }
 // --- Pallet ImOnline ---
 impl pallet_im_online::Config for TestRuntime {
@@ -201,17 +243,45 @@ parameter_types! {
     // minimal fee multiplier config for example
     pub const TransactionByteFee: u64 = 1;
 }
+
 impl pallet_transaction_payment::Config for TestRuntime {
-    type Event = Event;
-    type OnChargeTransaction = ();
-    type WeightToFee = frame_support::traits::IdentityFee<u64>;
-    type LengthToFee = frame_support::traits::IdentityFee<u64>;
+    type RuntimeEvent = RuntimeEvent;
+    type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
+    type WeightToFee = frame_support::weights::IdentityFee<u64>;
+    type LengthToFee = frame_support::weights::IdentityFee<u64>;
     type OperationalFeeMultiplier = ();
     type FeeMultiplierUpdate = ();
 }
+pub struct SomeIdentifier(pub [u8; 4]);
+parameter_types! {
+    pub const MaxLocks: u32 = 50;
+    pub const ExistentialDeposit: u64 = 1_000;
+    pub const ReserveIdentifier: SomeIdentifier = SomeIdentifier(*b"rsrv");
+    pub const FreezeIdentifier: SomeIdentifier = SomeIdentifier(*b"frze");
+    pub const MaxHolds: u32 = 50;
+    pub const MaxReserves: u32 = 50;
+    pub const MaxFreezes: u32 = 50;
+    pub const HoldIdentifier: SomeIdentifier = SomeIdentifier(*b"hold");
+}
+
+impl pallet_balances::Config for TestRuntime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_balances::weights::SubstrateWeight<TestRuntime>;
+    type Balance = u64;
+    type DustRemoval = ();
+    type ExistentialDeposit = ExistentialDeposit;
+    type AccountStore = System;
+    type ReserveIdentifier = ();
+    type FreezeIdentifier = ();
+    type MaxLocks = MaxLocks;
+    type MaxHolds = MaxHolds;
+    type MaxReserves = MaxReserves;
+    type MaxFreezes = MaxFreezes;
+    type HoldIdentifier = ();
+}
 
 parameter_types! {
-    pub const CurrencySubUnits: u128 = 1_000_000_000_000;
+    pub const CurrencySubUnits: u64 = 1_000_000_000_000;
     pub const MaxCandidates: u32 = 10;
     pub const MaxValidatorNodes: u32 = 10;
 }
@@ -232,7 +302,7 @@ parameter_types! {
 }
 
 impl d9_node_offence::Config for TestRuntime {
-    type RuntimeEvent = Event;
+    type RuntimeEvent = RuntimeEvent;
     type MaxOffendersPerSession = MaxOffendersPerSession;
 }
 
