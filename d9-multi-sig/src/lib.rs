@@ -12,12 +12,11 @@ pub mod pallet {
     use frame_support::dispatch::{
         DispatchResult, DispatchResultWithPostInfo, Dispatchable, GetDispatchInfo, PostDispatchInfo,
     };
-    use frame_support::pallet_prelude::*;
+    use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
     use frame_system::RawOrigin;
-    use sp_std::boxed::Box;
-    use sp_std::collections::btree_set::BTreeSet;
-    use sp_std::vec::Vec;
+    use sp_std::vec;
+    use sp_std::{boxed::Box, cmp::Ordering, collections::btree_set::BTreeSet, vec::Vec};
     const STORAGE_VERSION: frame_support::traits::StorageVersion =
         frame_support::traits::StorageVersion::new(1);
     #[pallet::pallet]
@@ -56,6 +55,12 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// (msa_address, proposal)    
+    #[pallet::storage]
+    #[pallet::getter(fn min_approval_proposals)]
+    pub type MinApprovalProposals<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, MinimumApprovalProposal<T>, OptionQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -71,6 +76,8 @@ pub mod pallet {
         ApprovalRemoved(T::AccountId, T::AccountId),
         /// (executor)
         CallExecuted([u8; 32]),
+        /// msa set new minimum approvals (multi signature account, new minimum)
+        MinApprovalsChanged(T::AccountId, u32),
     }
 
     #[pallet::error]
@@ -87,10 +94,18 @@ pub mod pallet {
         SignatoriesTooShort,
         /// Too many signers
         SignatoriesTooLong,
+        /// approval already exists
+        ApprovalExists,
+        ///attempting to remove nonexistent approval
+        ApprovalDoesntExist,
         /// Minimum approvals is out of range
         MinApprovalOutOfRange,
+        /// Proposal approval equals existing one
+        ProposalApprovalEqualsCurrent,
         /// Account is already an author
         AccountAlreadyAuthor,
+        /// only the msa author execute this calls
+        OnlyMSAItselfCanDoThis,
         /// Authors list too long
         AuthorVecTooLong,
         /// Not an author
@@ -113,6 +128,10 @@ pub mod pallet {
         CallNotFound,
         /// Failed to decode call
         FailureDecodingCall,
+        /// failure building BoundedVec
+        FailedToBuildBoundedVec,
+        /// Min approval proposal not found
+        ProposalNotFound,
     }
 
     #[pallet::call]
@@ -123,12 +142,16 @@ pub mod pallet {
         /// less than T::MaxSignatories, with all unique elements.
         /// origin must be an element of signatories and authors a
         /// subset of signatories.
+        /// Parameters:
+        /// - `signatories`: the list of signatories
+        /// - `authors_opt`: the list of authors, if None all signatories are authors
+        /// - `min_approving_signatories`: the minimum number of signatories required to approve a call
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn create_multi_sig_account(
             origin: OriginFor<T>,
             signatories: Vec<T::AccountId>,
-            authors: Option<Vec<T::AccountId>>,
+            authors_opt: Option<Vec<T::AccountId>>,
             min_approving_signatories: u32,
         ) -> DispatchResult {
             let signer = ensure_signed(origin)?;
@@ -136,10 +159,13 @@ pub mod pallet {
             // build and validate signatories bounded vec
             let mut bounded_signatories =
                 BoundedVec::try_from(signatories).map_err(|_| Error::<T>::SignatoriesTooLong)?;
+
+            // sort for consistent address generation
             bounded_signatories.sort();
+
             Self::validate_signatories(&bounded_signatories, &signer, min_approving_signatories)?;
 
-            let authors = Self::prepare_authors(authors, &bounded_signatories)?;
+            let authors = Self::prepare_authors(authors_opt, &bounded_signatories)?;
 
             let msa: MultiSignatureAccount<T> =
                 MultiSignatureAccount::new(bounded_signatories, authors, min_approving_signatories)
@@ -199,6 +225,10 @@ pub mod pallet {
                 pending_call
             };
 
+            if pending_call.approvals.contains(&signer) {
+                return Err(Error::<T>::ApprovalExists.into());
+            }
+
             let approvals = pending_call
                 .add_approval(signer.clone())
                 .map_err(|_| Error::<T>::ApprovalsLimitReached)?;
@@ -238,6 +268,9 @@ pub mod pallet {
                 let pending_call = msa.pending_calls.swap_remove(idx);
                 pending_call
             };
+            if !pending_call.approvals.contains(&signer) {
+                return Err(Error::<T>::ApprovalDoesntExist.into());
+            }
 
             pending_call
                 .remove_approval(signer.clone())
@@ -250,40 +283,94 @@ pub mod pallet {
 
         #[pallet::call_index(4)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn adjust_min_approvals(
+        pub fn proposal_msa_new_minimum(
             origin: OriginFor<T>,
-            multi_sig_account: T::AccountId,
-            new_min_approval: u32,
+            msa_address: T::AccountId,
+            new_min_approvals: u32,
         ) -> DispatchResultWithPostInfo {
             let signer = ensure_signed(origin)?;
-            MultiSignatureAccounts::<T>::try_mutate(&multi_sig_account, |msa_opt| {
-                let msa_ref = msa_opt.as_mut().ok_or(Error::<T>::MSANotFound)?;
+            let msa =
+                MultiSignatureAccounts::<T>::get(&msa_address).ok_or(Error::<T>::MSANotFound)?;
+            if !msa.is_author(&signer) {
+                return Err(Error::<T>::AccountNotAuthor.into());
+            };
 
-                if !msa_ref.is_author(&signer) {
-                    return Err(Error::<T>::AccountNotAuthor.into());
-                }
-
-                if !(2..=(msa_ref.signatories.len() as u32)).contains(&new_min_approval) {
-                    return Err(Error::<T>::MinApprovalOutOfRange.into());
-                }
-
-                msa_ref.minimum_signatories = new_min_approval;
-
-                let mut i = 0;
-                while i < msa_ref.pending_calls.len() {
-                    if msa_ref.pending_calls[i].approvals.len() == new_min_approval as usize {
-                        let pending_call = msa_ref.pending_calls.swap_remove(i);
-                        Self::execute_call(&pending_call, msa_ref).map(|_info| ())?;
-                        Self::deposit_event(Event::CallExecuted(pending_call.id));
-                    } else {
-                        i += 1;
-                    }
-                }
-                Ok(().into())
-            })
+            let min_approval_proposal =
+                Self::construct_min_approval_proposal(&msa, new_min_approvals, signer)?;
+            MinApprovalProposals::<T>::insert(msa_address, min_approval_proposal);
+            Ok(().into())
         }
 
         #[pallet::call_index(5)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+        pub fn approve_msa_new_minimum(
+            origin: OriginFor<T>,
+            msa_address: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let signer = ensure_signed(origin)?;
+            let mut msa =
+                MultiSignatureAccounts::<T>::get(&msa_address).ok_or(Error::<T>::MSANotFound)?;
+
+            if !msa.is_signatory(&signer) {
+                return Err(Error::<T>::AccountNotSignatory.into());
+            }
+
+            let mut min_approval_proposal =
+                MinApprovalProposals::<T>::get(&msa_address).ok_or(Error::<T>::ProposalNotFound)?;
+            if min_approval_proposal.approvals.contains(&signer) {
+                return Err(Error::<T>::ApprovalExists.into());
+            }
+            min_approval_proposal
+                .approvals
+                .try_push(signer.clone())
+                .map_err(|_| Error::<T>::ApprovalsLimitReached)?;
+            //does it pass?
+            if min_approval_proposal.approvals.len() as u32
+                >= min_approval_proposal.pass_requirement
+            {
+                let new_min_approvals = min_approval_proposal.new_minimum;
+                Self::update_msa_approval(&mut msa, new_min_approvals)?;
+                let _ = Self::dispatch_approved(&mut msa, new_min_approvals)?;
+                MultiSignatureAccounts::<T>::insert(&msa_address, msa);
+            } else {
+                MinApprovalProposals::<T>::insert(msa_address, min_approval_proposal);
+            }
+            Ok(().into())
+        }
+
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+        pub fn revoke_approval_for_msa_new_minimum(
+            origin: OriginFor<T>,
+            msa_address: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let signer = ensure_signed(origin)?;
+            let msa =
+                MultiSignatureAccounts::<T>::get(&msa_address).ok_or(Error::<T>::MSANotFound)?;
+            if !msa.is_signatory(&signer) {
+                return Err(Error::<T>::AccountNotSignatory.into());
+            }
+            let mut min_approval_proposal =
+                MinApprovalProposals::<T>::get(&msa_address).ok_or(Error::<T>::ProposalNotFound)?;
+            if !min_approval_proposal.approvals.contains(&signer) {
+                return Err(Error::<T>::ApprovalDoesntExist.into());
+            } else {
+                let idx = min_approval_proposal
+                    .approvals
+                    .iter()
+                    .position(|a| a == &signer)
+                    .unwrap();
+                min_approval_proposal.approvals.remove(idx);
+                if min_approval_proposal.approvals.len() == 0 {
+                    MinApprovalProposals::<T>::remove(msa_address);
+                } else {
+                    MinApprovalProposals::<T>::insert(msa_address, min_approval_proposal);
+                }
+            }
+            Ok(().into())
+        }
+
+        #[pallet::call_index(7)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn remove_call(
             origin: OriginFor<T>,
@@ -319,7 +406,7 @@ pub mod pallet {
             if signatories_len < 2 {
                 return Err(Error::<T>::SignatoriesTooShort);
             }
-            if !(1..=signatories_len).contains(&min_approvals) {
+            if !(2..=signatories_len).contains(&min_approvals) {
                 return Err(Error::<T>::MinApprovalOutOfRange);
             }
             let mut unique = BTreeSet::new();
@@ -341,6 +428,41 @@ pub mod pallet {
                 return Err(Error::<T>::CallerNotSignatory);
             }
             Ok(())
+        }
+
+        fn construct_min_approval_proposal(
+            msa: &MultiSignatureAccount<T>,
+            new_minimum: u32,
+            proposer: T::AccountId,
+        ) -> Result<MinimumApprovalProposal<T>, Error<T>> {
+            let signatories_count = msa.signatories.len() as u32;
+            if !(2..=signatories_count).contains(&new_minimum) {
+                return Err(Error::<T>::MinApprovalOutOfRange);
+            }
+
+            let min_approvals_to_change = match new_minimum.cmp(&msa.minimum_signatories) {
+                // Decreasing the threshold => require a majority
+                Ordering::Less => {
+                    let majority = signatories_count.saturating_div(2).saturating_add(1);
+                    Ok(majority)
+                }
+                // Increasing the threshold => require the existing threshold
+                Ordering::Greater => Ok(msa.minimum_signatories),
+                // new_min == old => reject
+                Ordering::Equal => Err(Error::<T>::ProposalApprovalEqualsCurrent),
+            }?;
+
+            let approvals =
+                BoundedVec::<T::AccountId, T::MaxSignatories>::try_from(vec![proposer.clone()])
+                    .map_err(|_| Error::<T>::FailedToBuildBoundedVec)?;
+            let min_approval_proposal = MinimumApprovalProposal {
+                msa_address: msa.address.clone(),
+                new_minimum,
+                proposer,
+                approvals,
+                pass_requirement: min_approvals_to_change,
+            };
+            Ok(min_approval_proposal)
         }
 
         fn prepare_authors(
@@ -378,6 +500,19 @@ pub mod pallet {
             Ok(())
         }
 
+        fn update_msa_approval(
+            msa: &mut MultiSignatureAccount<T>,
+            new_min_approvals: u32,
+        ) -> Result<(), Error<T>> {
+            msa.minimum_signatories = new_min_approvals;
+            Self::deposit_event(Event::MinApprovalsChanged(
+                msa.address.clone(),
+                new_min_approvals,
+            ));
+            MinApprovalProposals::<T>::remove(msa.address.clone());
+            Ok(())
+        }
+
         fn add_multi_sig_account_to_storage(msa: MultiSignatureAccount<T>) -> Result<(), Error<T>> {
             if MultiSignatureAccounts::<T>::contains_key(&msa.address) {
                 return Err(Error::<T>::MSAAlreadyExists.into());
@@ -400,6 +535,26 @@ pub mod pallet {
             Ok(())
         }
 
+        fn dispatch_approved(
+            msa: &mut MultiSignatureAccount<T>,
+            new_min_approvals: u32,
+        ) -> DispatchResultWithPostInfo {
+            let mut i = 0;
+            while i < msa.pending_calls.len() {
+                if msa.pending_calls[i].approvals.len() as u32 >= new_min_approvals {
+                    // We remove this call from the queue
+                    let ready_call = msa.pending_calls.swap_remove(i);
+                    // Execute it
+                    Self::execute_call(&ready_call, msa)?;
+                    // Announce success
+                    Self::deposit_event(Event::CallExecuted(ready_call.id));
+                } else {
+                    i += 1; // only move forward if we didn't swap_remove
+                }
+            }
+            Ok(().into())
+        }
+
         fn execute_call(
             call: &PendingCall<T>,
             msa: &mut MultiSignatureAccount<T>,
@@ -408,7 +563,8 @@ pub mod pallet {
                 .decode_call()
                 .map_err(|_| Error::<T>::FailureDecodingCall)?;
             let origin = RawOrigin::Signed(msa.address.clone()).into();
-            decoded_call.dispatch(origin)
+            let result = decoded_call.dispatch(origin);
+            result
         }
     }
 }
