@@ -101,7 +101,7 @@ pub mod pallet {
         /// Minimum approvals is out of range
         MinApprovalOutOfRange,
         /// Proposal approval equals existing one
-        ProposalApprovalEqualsCurrent,
+        NewMinimumEqualsCurrentMinimum,
         /// Account is already an author
         AccountAlreadyAuthor,
         /// only the msa author execute this calls
@@ -132,6 +132,8 @@ pub mod pallet {
         FailedToBuildBoundedVec,
         /// Min approval proposal not found
         ProposalNotFound,
+        /// proposal already pending
+        ProposalAlreadyPending,
     }
 
     #[pallet::call]
@@ -203,7 +205,7 @@ pub mod pallet {
 
         #[pallet::call_index(2)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn add_approval(
+        pub fn add_call_approval(
             origin: OriginFor<T>,
             multi_sig_account: T::AccountId,
             call_id: [u8; 32],
@@ -247,7 +249,7 @@ pub mod pallet {
 
         #[pallet::call_index(3)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn remove_approval(
+        pub fn remove_call_approval(
             origin: OriginFor<T>,
             multi_sig_account: T::AccountId,
             call_id: [u8; 32],
@@ -294,7 +296,9 @@ pub mod pallet {
             if !msa.is_author(&signer) {
                 return Err(Error::<T>::AccountNotAuthor.into());
             };
-
+            if MinApprovalProposals::<T>::contains_key(&msa_address) {
+                return Err(Error::<T>::ProposalAlreadyPending.into());
+            }
             let min_approval_proposal =
                 Self::construct_min_approval_proposal(&msa, new_min_approvals, signer)?;
             MinApprovalProposals::<T>::insert(msa_address, min_approval_proposal);
@@ -449,7 +453,7 @@ pub mod pallet {
                 // Increasing the threshold => require the existing threshold
                 Ordering::Greater => Ok(msa.minimum_signatories),
                 // new_min == old => reject
-                Ordering::Equal => Err(Error::<T>::ProposalApprovalEqualsCurrent),
+                Ordering::Equal => Err(Error::<T>::NewMinimumEqualsCurrentMinimum),
             }?;
 
             let approvals =

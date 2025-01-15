@@ -8,7 +8,7 @@ mod tests {
     use pallet_timestamp as timestamp;
     use sp_runtime::traits::Dispatchable;
     #[test]
-    fn remove_approval_fails_if_approval_does_not_exist() {
+    fn remove_call_approval_fails_if_approval_does_not_exist() {
         new_test_ext().execute_with(|| {
             let (msa_address, _) = setup_basic_msa();
 
@@ -23,7 +23,7 @@ mod tests {
             let call_id = msa_data.pending_calls[0].id;
 
             // Attempt to remove an approval that doesn't exist
-            let result = D9MultiSig::remove_approval(origin2.into(), msa_address, call_id);
+            let result = D9MultiSig::remove_call_approval(origin2.into(), msa_address, call_id);
             assert_noop!(result, Error::<TestRuntime>::ApprovalDoesntExist);
         });
     }
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn add_approval_works_and_triggers_execute_call() {
+    fn add_call_approval_works_and_triggers_execute_call() {
         new_test_ext().execute_with(|| {
             // Create multi-sig
             let origin1 = RawOrigin::Signed(1);
@@ -254,7 +254,8 @@ mod tests {
             let call_id = msa_data.pending_calls[0].id;
 
             // Now have user 2 add an approval. The min_approvals=2, so it should execute immediately.
-            let result = D9MultiSig::add_approval(origin2.into(), msa_address.clone(), call_id);
+            let result =
+                D9MultiSig::add_call_approval(origin2.into(), msa_address.clone(), call_id);
             assert_ok!(result);
 
             // After execution, that call should be removed from the pending_calls
@@ -264,9 +265,8 @@ mod tests {
         });
     }
 
-    // More tests for remove_approval, adjust_min_approvals, remove_call, etc. can follow
     #[test]
-    fn remove_approval_works() {
+    fn remove_call_approval_works() {
         new_test_ext().execute_with(|| {
             // 1) Setup a multi-sig with signatories [1,2,3], min approvals=2
             let origin1 = RawOrigin::Signed(1);
@@ -291,7 +291,7 @@ mod tests {
             let msa_data_after_call =
                 MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
             let call_id = msa_data_after_call.pending_calls[0].id;
-            assert_ok!(D9MultiSig::add_approval(
+            assert_ok!(D9MultiSig::add_call_approval(
                 origin2.clone().into(),
                 msa_address,
                 call_id
@@ -304,7 +304,7 @@ mod tests {
                 "should be two approvals"
             );
             // 4) Remove that approval from account 2
-            assert_ok!(D9MultiSig::remove_approval(
+            assert_ok!(D9MultiSig::remove_call_approval(
                 origin2.into(),
                 msa_address,
                 call_id
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_approval_fails_if_not_signatory() {
+    fn remove_call_approval_fails_if_not_signatory() {
         new_test_ext().execute_with(|| {
             // Setup a multi-sig with signatories [1,2,3]
             let origin1 = RawOrigin::Signed(1);
@@ -349,13 +349,13 @@ mod tests {
             // Attempt to remove approval from user 4 (not a signatory)
             let msa_data = MultiSignatureAccounts::<TestRuntime>::get(&msa_address).unwrap();
             let call_id = msa_data.pending_calls[0].id;
-            let result = D9MultiSig::remove_approval(origin4.into(), msa_address, call_id);
+            let result = D9MultiSig::remove_call_approval(origin4.into(), msa_address, call_id);
             assert_noop!(result, Error::<TestRuntime>::AccountNotSignatory);
         });
     }
 
     #[test]
-    fn remove_approval_fails_if_call_not_found() {
+    fn remove_call_approval_fails_if_call_not_found() {
         new_test_ext().execute_with(|| {
             // Setup multi-sig [1,2,3]
             let origin1 = RawOrigin::Signed(1);
@@ -371,7 +371,7 @@ mod tests {
                 .unwrap();
 
             // Try removing an approval using a random call_id
-            let result = D9MultiSig::remove_approval(
+            let result = D9MultiSig::remove_call_approval(
                 origin2.into(),
                 msa_address,
                 [99u8; 32], // This call_id does not exist
@@ -611,7 +611,262 @@ mod tests {
             assert_noop!(result, Error::<TestRuntime>::ApprovalDoesntExist);
         });
     }
+    #[test]
+    fn new_minimum_executes_pending_calls_if_threshold_met() {
+        new_test_ext().execute_with(|| {
+            // Setup MSA with 3 signers, requiring 3 approvals
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            assert_ok!(D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3],
+                None,
+                3 // Require all 3 signers
+            ));
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .unwrap();
 
+            // Fund the MSA
+            let transfer_call = pallet_balances::Call::transfer {
+                dest: msa_address,
+                value: 100_000,
+            };
+            assert_ok!(RuntimeCall::Balances(transfer_call).dispatch(origin1.clone().into()));
+
+            // Author a transfer call that needs 3 approvals
+            let pending_transfer = RuntimeCall::Balances(pallet_balances::Call::transfer {
+                dest: 4,
+                value: 50_000,
+            });
+            assert_ok!(D9MultiSig::author_a_call(
+                origin1.clone().into(),
+                msa_address,
+                Box::new(pending_transfer)
+            ));
+
+            // Get initial balances
+            let initial_msa_balance = Balances::free_balance(msa_address);
+            let initial_dest_balance = Balances::free_balance(4);
+
+            // Have 2 signers approve but it won't execute yet (needs 3)
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
+            let call_id = msa_data.pending_calls[0].id;
+            assert_ok!(D9MultiSig::add_call_approval(
+                origin2.clone().into(),
+                msa_address,
+                call_id
+            ));
+
+            // Verify call hasn't executed yet
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
+            assert_eq!(msa_data.pending_calls.len(), 1);
+            assert_eq!(Balances::free_balance(msa_address), initial_msa_balance);
+            assert_eq!(Balances::free_balance(4), initial_dest_balance);
+
+            // Now propose and approve lowering minimum to 2
+            assert_ok!(D9MultiSig::proposal_msa_new_minimum(
+                origin1.clone().into(),
+                msa_address,
+                2
+            ));
+            assert_ok!(D9MultiSig::approve_msa_new_minimum(
+                origin2.into(),
+                msa_address
+            ));
+
+            // Verify call was executed due to lowered threshold
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
+            assert_eq!(msa_data.pending_calls.len(), 0);
+            assert_eq!(
+                Balances::free_balance(msa_address),
+                initial_msa_balance - 50_000
+            );
+            assert_eq!(Balances::free_balance(4), initial_dest_balance + 50_000);
+        });
+    }
+
+    #[test]
+    fn new_minimum_executes_multiple_pending_calls() {
+        new_test_ext().execute_with(|| {
+            // Setup MSA with 3 signers, requiring 3 approvals
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            assert_ok!(D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3],
+                None,
+                3
+            ));
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .unwrap();
+
+            // Fund the MSA
+            let transfer_call = pallet_balances::Call::transfer {
+                dest: msa_address,
+                value: 200_000,
+            };
+            assert_ok!(RuntimeCall::Balances(transfer_call).dispatch(origin1.clone().into()));
+
+            // Author two transfer calls
+            let pending_transfer1 = RuntimeCall::Balances(pallet_balances::Call::transfer {
+                dest: 4,
+                value: 50_000,
+            });
+            let pending_transfer2 = RuntimeCall::Balances(pallet_balances::Call::transfer {
+                dest: 5,
+                value: 30_000,
+            });
+
+            assert_ok!(D9MultiSig::author_a_call(
+                origin1.clone().into(),
+                msa_address,
+                Box::new(pending_transfer1)
+            ));
+            assert_ok!(D9MultiSig::author_a_call(
+                origin1.clone().into(),
+                msa_address,
+                Box::new(pending_transfer2)
+            ));
+
+            // Get both call IDs and have second signer approve both
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
+            let call_id1 = msa_data.pending_calls[0].id;
+            let call_id2 = msa_data.pending_calls[1].id;
+
+            assert_ok!(D9MultiSig::add_call_approval(
+                origin2.clone().into(),
+                msa_address,
+                call_id1
+            ));
+            assert_ok!(D9MultiSig::add_call_approval(
+                origin2.clone().into(),
+                msa_address,
+                call_id2
+            ));
+
+            // Initial state check
+            let initial_msa_balance = Balances::free_balance(msa_address);
+            let initial_dest4_balance = Balances::free_balance(4);
+            let initial_dest5_balance = Balances::free_balance(5);
+
+            // Lower minimum to 2 and both calls should execute
+            assert_ok!(D9MultiSig::proposal_msa_new_minimum(
+                origin1.clone().into(),
+                msa_address,
+                2
+            ));
+            assert_ok!(D9MultiSig::approve_msa_new_minimum(
+                origin2.into(),
+                msa_address
+            ));
+
+            // Verify both calls executed
+            let msa_data = MultiSignatureAccounts::<TestRuntime>::get(msa_address).unwrap();
+            assert_eq!(msa_data.pending_calls.len(), 0);
+            assert_eq!(
+                Balances::free_balance(msa_address),
+                initial_msa_balance - 80_000
+            );
+            assert_eq!(Balances::free_balance(4), initial_dest4_balance + 50_000);
+            assert_eq!(Balances::free_balance(5), initial_dest5_balance + 30_000);
+        });
+    }
+
+    #[test]
+    fn proposal_msa_new_minimum_fails_if_proposal_exists() {
+        new_test_ext().execute_with(|| {
+            // We'll pick user #1 as the "creator" of the MSA
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            // Create an MSA with signatories [1,2,3], min approvals = 2
+            assert_ok!(D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3, 4],
+                None,
+                3
+            ));
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .unwrap();
+            // First proposal succeeds
+            assert_ok!(D9MultiSig::proposal_msa_new_minimum(
+                origin1.into(),
+                msa_address,
+                4
+            ));
+
+            // Second proposal should fail
+            let result = D9MultiSig::proposal_msa_new_minimum(origin2.into(), msa_address, 2);
+            assert_noop!(result, Error::<TestRuntime>::ProposalAlreadyPending);
+        });
+    }
+
+    #[test]
+    fn approve_msa_new_minimum_fails_if_same_signer_tries_to_approve() {
+        new_test_ext().execute_with(|| {
+            let (msa_address, _) = setup_basic_msa();
+            let origin1 = RawOrigin::Signed(1);
+
+            assert_ok!(D9MultiSig::proposal_msa_new_minimum(
+                origin1.clone().into(),
+                msa_address,
+                3
+            ));
+
+            // Try to approve twice with same signer
+            let result = D9MultiSig::approve_msa_new_minimum(origin1.into(), msa_address);
+            assert_noop!(result, Error::<TestRuntime>::ApprovalExists);
+        });
+    }
+
+    #[test]
+    fn proposal_msa_new_minimum_fails_if_invalid_minimum() {
+        new_test_ext().execute_with(|| {
+            let (msa_address, _) = setup_basic_msa();
+            let origin1 = RawOrigin::Signed(1);
+
+            // Try to set minimum higher than number of signatories
+            let result = D9MultiSig::proposal_msa_new_minimum(
+                origin1.clone().into(),
+                msa_address,
+                4, // Only 3 signatories exist
+            );
+            assert_noop!(result, Error::<TestRuntime>::MinApprovalOutOfRange);
+
+            // Try to set minimum to 1
+            let result = D9MultiSig::proposal_msa_new_minimum(
+                origin1.into(),
+                msa_address,
+                1, // Minimum should be at least 2
+            );
+            assert_noop!(result, Error::<TestRuntime>::MinApprovalOutOfRange);
+        });
+    }
+
+    #[test]
+    fn author_a_call_fails_if_too_many_pending() {
+        new_test_ext().execute_with(|| {
+            let (msa_address, _) = setup_basic_msa();
+            let origin1 = RawOrigin::Signed(1);
+
+            // Author max number of calls
+            for i in 0..10 {
+                let call = Box::new(RuntimeCall::Timestamp(timestamp::Call::set { now: i }));
+                assert_ok!(D9MultiSig::author_a_call(
+                    origin1.clone().into(),
+                    msa_address,
+                    call
+                ));
+            }
+
+            // One more should fail
+            let call = Box::new(RuntimeCall::Timestamp(timestamp::Call::set { now: 101 }));
+            let result = D9MultiSig::author_a_call(origin1.into(), msa_address, call);
+            assert_noop!(result, Error::<TestRuntime>::CallLimit);
+        });
+    }
     #[test]
     fn remove_call_fails_if_not_found() {
         new_test_ext().execute_with(|| {
