@@ -379,6 +379,93 @@ mod tests {
             assert_noop!(result, Error::<TestRuntime>::CallNotFound);
         });
     }
+    #[test]
+    fn proposal_is_removed_when_final_approval_revoked() {
+        new_test_ext().execute_with(|| {
+            // We'll pick user #1 as the "creator" of the MSA
+            let origin1 = RawOrigin::Signed(1);
+            let origin2 = RawOrigin::Signed(2);
+            // Create an MSA with signatories [1,2,3], min approvals = 2
+            assert_ok!(D9MultiSig::create_multi_sig_account(
+                origin1.clone().into(),
+                vec![1, 2, 3, 4],
+                None,
+                3
+            ));
+            // Grab the newly created MSA address
+            let (msa_address, _) = MultiSignatureAccounts::<TestRuntime>::iter()
+                .next()
+                .unwrap();
+
+            // Create proposal to change minimum signatories
+            // This creates the proposal and adds origin1's approval
+            assert_ok!(D9MultiSig::proposal_msa_new_minimum(
+                origin1.clone().into(),
+                msa_address,
+                4
+            ));
+
+            // Verify proposal exists with one approval initially
+            let initial_proposal = MinApprovalProposals::<TestRuntime>::get(msa_address);
+            assert!(
+                initial_proposal.is_some(),
+                "Proposal should exist after creation"
+            );
+            assert_eq!(
+                initial_proposal.unwrap().approvals.len(),
+                1,
+                "Should have one approval from creator"
+            );
+
+            // Add second approval
+            assert_ok!(D9MultiSig::approve_msa_new_minimum(
+                origin2.clone().into(),
+                msa_address,
+            ));
+
+            // Verify proposal exists with both approvals
+            let proposal_after_second = MinApprovalProposals::<TestRuntime>::get(msa_address);
+            assert!(
+                proposal_after_second.is_some(),
+                "Proposal should exist after second approval"
+            );
+            assert_eq!(
+                proposal_after_second.unwrap().approvals.len(),
+                2,
+                "Should have two approvals"
+            );
+
+            // Second signer revokes approval
+            assert_ok!(D9MultiSig::revoke_approval_for_msa_new_minimum(
+                origin2.into(),
+                msa_address
+            ));
+
+            // Check state after first revocation
+            let proposal_after_first_revoke = MinApprovalProposals::<TestRuntime>::get(msa_address);
+            assert!(
+                proposal_after_first_revoke.is_some(),
+                "Proposal should still exist after one revocation"
+            );
+            assert_eq!(
+                proposal_after_first_revoke.unwrap().approvals.len(),
+                1,
+                "Should have one approval remaining"
+            );
+
+            // First signer (creator) revokes approval
+            assert_ok!(D9MultiSig::revoke_approval_for_msa_new_minimum(
+                origin1.into(),
+                msa_address
+            ));
+
+            // Verify proposal is completely removed from storage
+            assert!(
+                MinApprovalProposals::<TestRuntime>::get(msa_address).is_none(),
+                "Proposal should be removed when final approval is revoked"
+            );
+        });
+    }
 
     #[test]
     fn remove_call_works() {

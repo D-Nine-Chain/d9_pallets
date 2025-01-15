@@ -178,6 +178,12 @@ pub mod pallet {
             Ok(())
         }
 
+        /// create a call for a msa
+        ///
+        /// only authors can create calls
+        /// Parameters:
+        /// - `multi_sig_account`: the multi signature account
+        /// - `call`: the call to be executed (runtime call. the js polkadot can help create it)
         #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn author_a_call(
@@ -203,6 +209,11 @@ pub mod pallet {
             Ok(())
         }
 
+        /// signatories approve a call
+        ///
+        /// Parameters:
+        /// - `multi_sig_account`: the multi signature account
+        /// - `call_id`: the call to be approved
         #[pallet::call_index(2)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn add_call_approval(
@@ -247,6 +258,11 @@ pub mod pallet {
             Ok(().into())
         }
 
+        /// remove approval for a call
+        ///
+        /// Parameters:
+        /// - `multi_sig_account`: the multi signature account
+        /// - `call_id`: the call to be approved
         #[pallet::call_index(3)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn remove_call_approval(
