@@ -2,27 +2,27 @@
 
 use sp_staking::SessionIndex;
 mod structs;
-use frame_support::{ traits::Currency, PalletId };
+use frame_support::{traits::Currency, PalletId};
 pub use pallet::*;
 
-pub type BalanceOf<T> =
-    <<T as pallet_contracts::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub type BalanceOf<T> = <<T as pallet_contracts::Config>::Currency as Currency<
+    <T as frame_system::Config>::AccountId,
+>>::Balance;
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
     use frame_support::{
         inherent::Vec,
-        pallet_prelude::{ DispatchResult,OptionQuery, * },
+        pallet_prelude::{DispatchResult, OptionQuery, *},
         weights::Weight,
     };
     use frame_system::pallet_prelude::*;
     use pallet_d9_node_voting::NodeRewardManager;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::BadOrigin;
-    const STORAGE_VERSION: frame_support::traits::StorageVersion = frame_support::traits::StorageVersion::new(
-        1
-    );
+    const STORAGE_VERSION: frame_support::traits::StorageVersion =
+        frame_support::traits::StorageVersion::new(1);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -78,15 +78,12 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn set_node_reward_contract(
             origin: OriginFor<T>,
-            new_contract: T::AccountId
+            new_contract: T::AccountId,
         ) -> DispatchResult {
             Self::root_or_admin(origin)?;
             NodeRewardContract::<T>::put(new_contract);
             Ok(())
         }
-
-      
-        
     }
 
     impl<T: Config> Pallet<T> {
@@ -113,7 +110,7 @@ pub mod pallet {
 
         fn update_rewards_on_contract(
             end_index: SessionIndex,
-            sorted_nodes: Vec<(T::AccountId, u64)>
+            sorted_nodes: Vec<(T::AccountId, u64)>,
         ) -> Result<(), Error<T>> {
             // let sorted_nodes_vec = sorted_nodes
             //     .iter()
@@ -147,13 +144,15 @@ pub mod pallet {
                 None,
                 data_for_contract_call,
                 false,
-                pallet_contracts::Determinism::Enforced
-            ).result;
+                pallet_contracts::Determinism::Enforced,
+            )
+            .result;
             match contract_call_result {
                 Ok(_) => Ok(()),
                 Err(err) => {
                     Self::deposit_event(Event::ContractError(err));
-                  Err(Error::<T>::ErrorUpdatingNodeRewardContract)}
+                    Err(Error::<T>::ErrorUpdatingNodeRewardContract)
+                }
             }
         }
     }
@@ -162,12 +161,10 @@ pub mod pallet {
         /// pull data to update the pool
         fn update_rewards(
             end_index: SessionIndex,
-            sorted_node_list: Vec<(T::AccountId, u64)>
+            sorted_node_list: Vec<(T::AccountId, u64)>,
         ) -> () {
-            let contract_update_result = Self::update_rewards_on_contract(
-                end_index,
-                sorted_node_list
-            );
+            let contract_update_result =
+                Self::update_rewards_on_contract(end_index, sorted_node_list);
             if contract_update_result.is_err() {
                 Self::deposit_event(Event::ErrorIssuingRewards);
                 return;

@@ -299,6 +299,11 @@ pub mod pallet {
             Ok(().into())
         }
 
+        /// propose a new minimum approvals for a multi signature account
+        ///
+        /// Parameters:
+        /// - `msa_address`: the multi signature account
+        /// - `new_min_approvals`: the new minimum approvals
         #[pallet::call_index(4)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
         pub fn proposal_msa_new_minimum(
