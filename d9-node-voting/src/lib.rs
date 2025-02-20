@@ -155,14 +155,18 @@ pub mod pallet {
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
-        pub initial_candidates: Vec<T::AccountId>,
+        pub initial_candidates: Vec<(T::AccountId, NodeMetadataStruct)>,
     }
 
     #[pallet::genesis_build]
     impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
         fn build(&self) {
+            //note genesiss needs to be done such that votes are accounted for.
+            // consider calling that burn function that adds votes and burns to maintain consistence
             for candidate in self.initial_candidates.iter() {
-                NodeAccumulativeVotes::<T>::insert(candidate.clone(), 1000);
+                let candidate_node = candidate.0.clone();
+                NodeMetadata::<T>::insert(candidate_node.clone(), candidate.1.clone());
+                NodeAccumulativeVotes::<T>::insert(candidate_node, 1000);
                 CurrentNumberOfCandidatesNodes::<T>::put(
                     CurrentNumberOfCandidatesNodes::<T>::get() + 1,
                 );
@@ -262,20 +266,51 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 3).saturating_add(
+            // Account for each supporter processing
+            T::DbWeight::get().reads_writes(1, 3).saturating_mul(
+                CurrentNumberOfCandidatesNodes::<T>::get().into()
+            )
+        ))]
         pub fn remove_candidacy(origin: OriginFor<T>) -> DispatchResult {
             let candidate: T::AccountId = ensure_signed(origin)?;
-            let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
-            let mut prefix_iterator = NodeToUserVotesTotals::<T>::iter_prefix((candidate.clone(),));
-            while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
-                support_to_remove.push((supporter, delegated_votes));
+
+            if !NodeAccumulativeVotes::<T>::contains_key(&candidate) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
             }
-            for support in support_to_remove {
-                Self::remove_votes_from_candidate(&support.0, &candidate, support.1);
+
+            // Clear vote counts and update related storage
+            NodeAccumulativeVotes::<T>::remove(&candidate);
+
+            // Need to drain and collect first because we'll be modifying storage during iteration
+            let supporters_data: Vec<(T::AccountId, u64)> =
+                NodeToUserVotesTotals::<T>::drain_prefix((candidate.clone(),)).collect();
+
+            // Process all supporters at once
+            for (supporter, delegated_votes) in supporters_data {
+                if delegated_votes > 0 {
+                    // Update supporter's voting interests
+                    UsersVotingInterests::<T>::mutate(&supporter, |voting_interest| {
+                        if let Some(interest) = voting_interest {
+                            interest.delegated = interest.delegated.saturating_sub(delegated_votes);
+                        }
+                    });
+
+                    // Remove the supporter's vote record (reverse mapping)
+                    UserToNodeVotesTotals::<T>::remove((supporter, &candidate));
+                }
             }
+
+            // Update candidate count
             let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
-            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count - 1);
-            NodeMetadata::<T>::remove(candidate.clone());
+            if current_candidate_count > 0 {
+                CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count - 1);
+            }
+
+            // Remove metadata
+            NodeMetadata::<T>::remove(&candidate);
+
+            // Emit event
             Self::deposit_event(Event::CandidacyRemoved(candidate));
             Ok(())
         }

@@ -3,7 +3,9 @@ use crate::pallet::Pallet;
 use crate::BalanceOf;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{ pallet_prelude::*, BoundedVec, inherent::Vec };
+use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
+use serde::Deserialize;
+use serde::Serialize;
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
@@ -15,7 +17,7 @@ use sp_staking::SessionIndex;
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 pub struct VotingInterest {
     #[codec(compact)]
@@ -27,7 +29,7 @@ pub struct VotingInterest {
 impl Default for VotingInterest {
     fn default() -> Self {
         VotingInterest {
-            total: 0, // Default value for total
+            total: 0,     // Default value for total
             delegated: 0, // Default value for delegated
         }
     }
@@ -50,7 +52,7 @@ impl VotingInterest {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 
 /// defines how a user will delegate their votes among a particular candidate
@@ -68,7 +70,7 @@ pub struct ValidatorDelegations<T: Config> {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct Candidate<T: Config> {
@@ -85,16 +87,7 @@ impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId
 }
 
 #[derive(
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Encode,
-    Decode,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct ValidatorVoteStats<T: Config> {
@@ -114,7 +107,9 @@ pub struct ValidatorVoteStats<T: Config> {
     Decode,
     RuntimeDebug,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
+    Deserialize,
+    Serialize,
 )]
 pub struct NodeMetadataStruct {
     pub name: BoundedVec<u8, ConstU32<128>>,
