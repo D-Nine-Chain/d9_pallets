@@ -487,7 +487,7 @@ pub mod pallet {
             T::LockableCurrency::set_lock(
                 T::LockIdentifier::get(),
                 account_id,
-                T::LockableCurrency::total_issuance(),
+                1u32.into(),
                 WithdrawReasons::all(),
             );
         }
