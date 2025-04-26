@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-balances"
-version = "0.2.0"
+version = "1.2.1"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -1734,30 +1734,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-d9-multi-sig"
-version = "2.0.0"
+name = "pallet-d9-council-lock"
+version = "1.0.6"
 dependencies = [
  "frame-benchmarking",
+ "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "hex",
  "impl-trait-for-tuples",
- "pallet-balances",
+ "pallet-d9-balances",
+ "pallet-session",
  "pallet-timestamp",
- "pallet-treasury",
  "pallet-utility",
  "parity-scale-codec",
  "scale-info",
  "serde",
  "sp-api",
+ "sp-arithmetic 19.0.0",
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-staking",
  "sp-std 5.0.0",
+ "substrate-fixed",
 ]
 
 [[package]]
 name = "pallet-d9-node-rewards"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1786,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-node-voting"
-version = "0.2.0"
+version = "1.3.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1813,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-referral"
-version = "0.1.0-dev"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -1834,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-treasury"
-version = "0.1.0-dev"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",

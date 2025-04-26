@@ -3,7 +3,7 @@ use crate::pallet::Pallet;
 use crate::BalanceOf;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{ pallet_prelude::*, BoundedVec, inherent::Vec };
+use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
@@ -15,7 +15,7 @@ use sp_staking::SessionIndex;
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 pub struct VotingInterest {
     #[codec(compact)]
@@ -27,7 +27,7 @@ pub struct VotingInterest {
 impl Default for VotingInterest {
     fn default() -> Self {
         VotingInterest {
-            total: 0, // Default value for total
+            total: 0,     // Default value for total
             delegated: 0, // Default value for delegated
         }
     }
@@ -50,7 +50,7 @@ impl VotingInterest {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 
 /// defines how a user will delegate their votes among a particular candidate
@@ -68,7 +68,7 @@ pub struct ValidatorDelegations<T: Config> {
     Decode,
     RuntimeDebugNoBound,
     TypeInfo,
-    MaxEncodedLen
+    MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct Candidate<T: Config> {
@@ -85,16 +85,7 @@ impl<T: Config> Convert<T::AccountId, Option<T::AccountId>> for ConvertAccountId
 }
 
 #[derive(
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Encode,
-    Decode,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
 )]
 #[scale_info(skip_type_params(T))]
 pub struct ValidatorVoteStats<T: Config> {
@@ -105,16 +96,7 @@ pub struct ValidatorVoteStats<T: Config> {
 }
 
 #[derive(
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    Encode,
-    Decode,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen
+    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
 )]
 pub struct NodeMetadataStruct {
     pub name: BoundedVec<u8, ConstU32<128>>,
@@ -131,4 +113,9 @@ impl<T: Config> Convert<T::AccountId, Option<ValidatorVoteStats<T>>> for Validat
 
 pub trait NodeRewardManager<AccountId> {
     fn update_rewards(end_index: SessionIndex, nodes_with_votes: Vec<(AccountId, u64)>) -> ();
+}
+
+pub trait ReferendumManager {
+    fn start_pending_votes(session_index: SessionIndex);
+    fn end_active_votes(session_index: SessionIndex);
 }

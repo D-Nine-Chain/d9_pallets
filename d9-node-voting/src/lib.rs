@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use sp_staking::SessionIndex;
 use sp_std::prelude::*;
-mod structs;
+mod types;
 use frame_support::traits::Currency;
 pub use pallet::*;
 use sp_arithmetic::Perquintill;
-pub use structs::*;
+pub use types::*;
 
 pub type BalanceOf<T> = <<T as pallet_contracts::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
@@ -37,16 +37,12 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_contracts::Config {
         type CurrencySubUnits: Get<BalanceOf<Self>>;
-
         type Currency: Currency<Self::AccountId>;
-
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         type MaxCandidates: Get<u32>;
-
         type MaxValidatorNodes: Get<u32>;
-
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
+        type ReferendumManager: ReferendumManager;
     }
 
     /// defines the voting power of a user
@@ -479,7 +475,7 @@ pub mod pallet {
             candidate_metadata.sharing_percent
         }
 
-        fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
+        pub fn get_sorted_candidates() -> Option<Vec<T::AccountId>> {
             let mut candidates =
                 NodeAccumulativeVotes::<T>::iter().collect::<Vec<(T::AccountId, u64)>>();
             candidates.sort_by(|a, b| b.1.cmp(&a.1));
@@ -659,7 +655,6 @@ pub mod pallet {
             UsersVotingInterests::<T>::insert(delegator.clone(), user_voting_interests);
         }
     }
-
     impl<T: Config> SessionManager<T::AccountId> for Pallet<T> {
         fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
             let sorted_candidates_opt = Self::get_sorted_candidates();
@@ -678,6 +673,7 @@ pub mod pallet {
 
         fn start_session(start_index: SessionIndex) {
             let _ = CurrentSessionIndex::<T>::put(start_index);
+            let _ = T::ReferendumManager::start_pending_votes(start_index);
             let sorted_candidates_opt = Self::get_sorted_candidates();
             if sorted_candidates_opt.is_none() {
                 return;
@@ -729,17 +725,13 @@ pub mod pallet {
                 );
             }
         }
+
         fn end_session(end_index: SessionIndex) {
             let _ = CurrentValidatorVoteStats::<T>::drain();
             let sorted_nodes_with_votes = Self::get_sorted_candidates_with_votes();
-            // match sorted_node_list_opt {
-            //     Some(sorted_node_list) => {
-            //         let _ = T::NodeRewardManager::update_rewards(end_index, sorted_node_list);
-            //     }
-            //     None => {}
-            // }
 
             let _ = T::NodeRewardManager::update_rewards(end_index, sorted_nodes_with_votes);
+            let _ = T::ReferendumManager::end_active_votes(end_index);
         }
     }
 }

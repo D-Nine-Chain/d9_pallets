@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "d9-balances/",
-    "d9-node-voting/",
-    "d9-referral/",
-    "d9-treasury/",
-    "d9-node-rewards",
-    "d9-multi-sig",
+	"d9-balances/",
+	"d9-node-voting/",
+	"d9-referral/",
+	"d9-treasury/",
+	"d9-node-rewards",
+	"d9-council-lock",
+    "d9-multi-sig"
 ]

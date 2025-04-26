@@ -1,3 +1,5 @@
 **/target/
 .prettierrc
-pallets.code-workspace
+.vscode
+.zed
+**/.DS_Store

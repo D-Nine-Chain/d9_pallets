@@ -36,8 +36,6 @@ pub mod pallet {
 
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        // type AccountIdConversion: AccountIdConversion<Self::PalletId>;
-
         #[pallet::constant]
         type PalletId: Get<PalletId>;
     }
