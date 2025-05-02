@@ -224,6 +224,109 @@ pub mod pallet {
             ProposalFee::<T>::put(new_fee);
             Ok(())
         }
+
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(10, 10))]
+        pub fn admin_lock_accounts(
+            origin: OriginFor<T>, 
+            accounts_to_lock: Vec<T::AccountId>,
+            proposer: T::AccountId
+        ) -> DispatchResult {
+            Self::root_or_admin(origin)?;
+            let current_session = T::RankingProvider::current_session_index();
+            
+            for account_to_lock in accounts_to_lock {
+                // Skip if account is already locked or there's an existing proposal
+                if LockedAccounts::<T>::contains_key(&account_to_lock) || 
+                   Proposals::<T>::contains_key(&account_to_lock) || 
+                   Referendums::<T>::contains_key(&account_to_lock) {
+                    continue;
+                }
+                
+                // Don't allow locking the admin
+                if let Some(admin) = PalletAdmin::<T>::get() {
+                    if admin == account_to_lock {
+                        continue;
+                    }
+                }
+                
+                // Lock the funds immediately
+                Self::lock_funds(&account_to_lock);
+                
+                // Create a lock record directly (bypass proposal/referendum)
+                LockedAccounts::<T>::insert(
+                    account_to_lock.clone(),
+                    AccountLock {
+                        account: account_to_lock.clone(),
+                        nominator: proposer.clone(),
+                        lock_index: current_session,
+                    }
+                );
+                
+                // Emit the lock event
+                Self::deposit_event(Event::AccountLocked(account_to_lock));
+            }
+            
+            Ok(())
+        }
+        
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(10, 10))]
+        pub fn admin_unlock_accounts(
+            origin: OriginFor<T>,
+            accounts_to_unlock: Vec<T::AccountId>
+        ) -> DispatchResult {
+            Self::root_or_admin(origin)?;
+            
+            for account_to_unlock in accounts_to_unlock {
+                // Skip if account is not currently locked
+                if !LockedAccounts::<T>::contains_key(&account_to_unlock) {
+                    continue;
+                }
+                
+                // Remove the lock record
+                LockedAccounts::<T>::remove(&account_to_unlock);
+                
+                // Unlock the funds
+                Self::unlock_funds(&account_to_unlock);
+                
+                // Emit the unlock event
+                Self::deposit_event(Event::AccountUnlocked(account_to_unlock));
+            }
+            
+            Ok(())
+        }
+        
+        #[pallet::call_index(8)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1))]
+        pub fn admin_remove_proposal(
+            origin: OriginFor<T>,
+            proposed_account: T::AccountId
+        ) -> DispatchResult {
+            Self::root_or_admin(origin)?;
+            
+            // Check if the proposal exists
+            if !Proposals::<T>::contains_key(&proposed_account) {
+                return Ok(());
+            }
+            
+            // Get the proposal to determine if it's a lock or unlock proposal
+            let proposal = Proposals::<T>::get(&proposed_account).unwrap();
+            
+            // If it's a proposal to lock, we'll try to unlock it to ensure the account is
+            // fully unlocked when the proposal is removed
+            // (safe even for proposals created before the runtime upgrade that didn't lock at proposal time)
+            if proposal.change_to == AccountLockState::Locked {
+                // Always attempt to unlock - this is safe even if the account isn't locked
+                Self::unlock_funds(&proposed_account);
+                Self::deposit_event(Event::AccountUnlocked(proposed_account.clone()));
+            }
+            
+            // Remove the proposal
+            Proposals::<T>::remove(&proposed_account);
+            
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
