@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-balances"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-d9-council-lock"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -1758,6 +1758,28 @@ dependencies = [
  "sp-staking",
  "sp-std 5.0.0",
  "substrate-fixed",
+]
+
+[[package]]
+name = "pallet-d9-multi-sig"
+version = "2.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "pallet-balances",
+ "pallet-timestamp",
+ "pallet-treasury",
+ "pallet-utility",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std 5.0.0",
 ]
 
 [[package]]

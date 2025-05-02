@@ -286,7 +286,11 @@ pub mod pallet {
                 mining_pool,
                 proposal_fee,
             )?;
-            Self::save_proposal(lock_decision_proposal);
+
+            // Lock funds immediately at proposal time regardless of lock or unlock proposal
+            // For unlock proposals, funds remain locked until the vote passes
+            Self::lock_funds(&lock_decision_proposal.proposed_account);
+            Self::save_proposal(lock_decision_proposal.clone());
             Ok(())
         }
 
@@ -311,9 +315,11 @@ pub mod pallet {
             }
             Ok(())
         }
+
         fn get_time_stamp() -> MomentOf<T> {
             timestamp::Pallet::<T>::get()
         }
+
         //// validate origin is permitted to nominate
         fn check_nominator(account_id: &T::AccountId) -> Result<(), Error<T>> {
             let _ = Self::check_action_eligibility(account_id)?;
@@ -383,6 +389,7 @@ pub mod pallet {
             ));
             Proposals::<T>::insert(lock_proposal.proposed_account.clone(), lock_proposal);
         }
+
         fn get_ranked_nodes() -> Result<Vec<T::AccountId>, Error<T>> {
             let ranked_nodes_option = T::RankingProvider::get_ranked_nodes();
             if ranked_nodes_option.is_none() {
@@ -434,25 +441,42 @@ pub mod pallet {
 
         /// lock or unlock account funds based on referendum result
         fn execute_referendum(referendum: &LockReferendum<T>) -> Result<(), Error<T>> {
+            let vote_result = referendum.get_result();
+
             match referendum.change_to {
                 AccountLockState::Locked => {
-                    LockedAccounts::<T>::insert(
-                        referendum.proposed_account.clone(),
-                        AccountLock {
-                            account: referendum.proposed_account.clone(),
-                            nominator: referendum.nominator.clone(),
-                            lock_index: T::RankingProvider::current_session_index(),
-                        },
-                    );
-                    Self::lock_funds(&referendum.proposed_account);
-                    Self::deposit_event(Event::AccountLocked(referendum.proposed_account.clone()));
+                    if vote_result == VoteResult::Passed {
+                        // The vote passed - update the lock record
+                        // (Funds are already locked from proposal time)
+                        LockedAccounts::<T>::insert(
+                            referendum.proposed_account.clone(),
+                            AccountLock {
+                                account: referendum.proposed_account.clone(),
+                                nominator: referendum.nominator.clone(),
+                                lock_index: T::RankingProvider::current_session_index(),
+                            },
+                        );
+                        Self::deposit_event(Event::AccountLocked(
+                            referendum.proposed_account.clone(),
+                        ));
+                    } else if vote_result == VoteResult::Rejected {
+                        // The lock vote was rejected - unlock the funds
+                        Self::unlock_funds(&referendum.proposed_account);
+                        Self::deposit_event(Event::AccountUnlocked(
+                            referendum.proposed_account.clone(),
+                        ));
+                    }
                 }
                 AccountLockState::Unlocked => {
-                    LockedAccounts::<T>::remove(referendum.proposed_account.clone());
-                    Self::unlock_funds(&referendum.proposed_account);
-                    Self::deposit_event(Event::AccountUnlocked(
-                        referendum.proposed_account.clone(),
-                    ));
+                    if vote_result == VoteResult::Passed {
+                        // The unlock vote passed - unlock the funds and remove lock record
+                        LockedAccounts::<T>::remove(referendum.proposed_account.clone());
+                        Self::unlock_funds(&referendum.proposed_account);
+                        Self::deposit_event(Event::AccountUnlocked(
+                            referendum.proposed_account.clone(),
+                        ));
+                    }
+                    // If vote is rejected, funds remain locked
                 }
             }
             Ok(())
@@ -532,6 +556,21 @@ pub mod pallet {
                     referendum.dissenting_voters.len() as u32,
                 );
                 Self::deposit_event(Event::VoteEnded(account_id.clone(), vote_result.clone()));
+
+                // Handle inconclusive votes according to proposal type
+                match referendum.change_to {
+                    AccountLockState::Locked => {
+                        // If it was a lock proposal and the vote is inconclusive, unlock the funds
+                        // since we locked at proposal time but the vote didn't pass
+                        Self::unlock_funds(&account_id);
+                        Self::deposit_event(Event::AccountUnlocked(account_id.clone()));
+                    }
+                    AccountLockState::Unlocked => {
+                        // If it was an unlock proposal and the vote is inconclusive,
+                        // leave the funds locked (do nothing)
+                    }
+                }
+
                 let concluded_referendum = Resolution::new(referendum, vote_result, now);
                 Resolutions::<T>::insert((ending_index, account_id.clone()), concluded_referendum);
                 Referendums::<T>::remove(account_id);
