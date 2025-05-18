@@ -1757,7 +1757,6 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std 5.0.0",
- "substrate-fixed",
 ]
 
 [[package]]
@@ -1808,7 +1807,6 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std 5.0.0",
- "substrate-fixed",
 ]
 
 [[package]]
@@ -1835,7 +1833,6 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std 5.0.0",
- "substrate-fixed",
 ]
 
 [[package]]
@@ -1853,6 +1850,22 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std 5.0.0",
+]
+
+[[package]]
+name = "pallet-d9-transaction-fees"
+version = "1.0.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-transaction-payment",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -1924,6 +1937,7 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -3142,26 +3156,6 @@ dependencies = [
  "schnorrkel",
  "sha2 0.9.9",
  "zeroize",
-]
-
-[[package]]
-name = "substrate-fixed"
-version = "0.5.9"
-source = "git+https://github.com/encointer/substrate-fixed#a75f3ba3f7c7893fb420500639cc055f964b1b88"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "substrate-typenum",
-]
-
-[[package]]
-name = "substrate-typenum"
-version = "1.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0f0091e93c2c75b233ae39424c52cb8a662c0811fb68add149e20e5d7e8a788"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
 ]
 
 [[package]]

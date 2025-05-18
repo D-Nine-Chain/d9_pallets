@@ -1,7 +1,5 @@
 use frame_support::pallet_prelude::*;
-// use substrate_fixed::{ FixedU128, types::extra::U30 };
 use codec::MaxEncodedLen;
-// pub type FixedBalance = FixedU128<U30>;
 #[derive(
     PartialEq,
     Eq,

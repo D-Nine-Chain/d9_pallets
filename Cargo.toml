@@ -7,5 +7,6 @@ members = [
 	"d9-treasury/",
 	"d9-node-rewards",
 	"d9-council-lock",
-    "d9-multi-sig"
+    "d9-multi-sig",
+    "d9-transaction-fees"
 ]
