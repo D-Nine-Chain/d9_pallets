@@ -136,6 +136,15 @@ pub mod pallet {
 				Err(o)
 			}
 		}
+
+		#[cfg(feature = "runtime-benchmarks")]
+		fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
+			use frame_system::RawOrigin;
+			let treasurer = Treasurer::<T, I>::get()
+				.ok_or(())?
+				.ok_or(())?;
+			Ok(T::RuntimeOrigin::from(RawOrigin::Signed(treasurer)))
+		}
 	}
 	/// Provides a way to ensure that only the treasurer can execute certain actions.
 	///
@@ -175,6 +184,15 @@ pub mod pallet {
 			} else {
 				Err(o)
 			}
+		}
+
+		#[cfg(feature = "runtime-benchmarks")]
+		fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
+			use frame_system::RawOrigin;
+			let treasurer = Treasurer::<T, I>::get()
+				.ok_or(())?
+				.ok_or(())?;
+			Ok(T::RuntimeOrigin::from(RawOrigin::Signed(treasurer)))
 		}
 	}
 

@@ -11,7 +11,7 @@ use frame_support::{
 pub use pallet::*;
 pub use types::*;
 pub type BalanceOf<T> =
-    <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+    <<T as pallet_contracts::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 #[frame_support::pallet]
 pub mod pallet {
 
@@ -33,9 +33,8 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + scale_info::TypeInfo + timestamp::Config {
+    pub trait Config: frame_system::Config + scale_info::TypeInfo + timestamp::Config + pallet_contracts::Config {
         type LockIdentifier: Get<[u8; 8]>;
-        type Currency: Currency<Self::AccountId>;
         type LockableCurrency: LockableCurrency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         #[pallet::constant]
@@ -130,6 +129,7 @@ pub mod pallet {
         NotValidCouncilMember,
         ErrorCalculatingVotes,
         VoterAlreadyVoted,
+        ContractsCannotBeLocked,
     }
 
     #[pallet::call]
@@ -249,6 +249,8 @@ pub mod pallet {
                         continue;
                     }
                 }
+                
+                // Note: Admins can lock contracts, only regular proposals are restricted
                 
                 // Lock the funds immediately
                 Self::lock_funds(&account_to_lock);
@@ -594,6 +596,9 @@ pub mod pallet {
             if locked_account.is_some() {
                 return Err(Error::<T>::AccountAlreadyLocked);
             }
+            if Self::is_contract(account_id) {
+                return Err(Error::<T>::ContractsCannotBeLocked);
+            }
             return Ok(());
         }
 
@@ -629,7 +634,14 @@ pub mod pallet {
             to: T::AccountId,
             amount: BalanceOf<T>,
         ) -> DispatchResult {
-            T::Currency::transfer(&from, &to, amount, ExistenceRequirement::KeepAlive)
+            <T as pallet_contracts::Config>::Currency::transfer(&from, &to, amount, ExistenceRequirement::KeepAlive)
+        }
+
+        /// Check if an account is a contract
+        fn is_contract(account_id: &T::AccountId) -> bool {
+            // Check if the account has a code hash, which indicates it's a contract
+            // This is the definitive way to determine if an account is a contract
+            pallet_contracts::Pallet::<T>::code_hash(account_id).is_some()
         }
 
         pub fn start_pending_votes(current_session_index: SessionIndex) -> () {
