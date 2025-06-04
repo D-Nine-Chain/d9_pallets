@@ -655,6 +655,66 @@ pub mod pallet {
             UsersVotingInterests::<T>::insert(delegator.clone(), user_voting_interests);
         }
     }
+    pub trait CandidateManager<AccountId> {
+        fn add_candidate(who: &AccountId) -> DispatchResult;
+        fn remove_candidate(who: &AccountId) -> DispatchResult;
+        fn is_candidate(who: &AccountId) -> bool;
+    }
+
+    impl<T: Config> CandidateManager<T::AccountId> for Pallet<T> {
+        fn add_candidate(who: &T::AccountId) -> DispatchResult {
+            let candidate_votes_opt = NodeAccumulativeVotes::<T>::get(who.clone());
+            if candidate_votes_opt.is_some() {
+                return Err(Error::<T>::CandidateAlreadyExists.into());
+            }
+            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
+            let max_candidates = T::MaxCandidates::get();
+            if current_candidate_count + 1 > max_candidates {
+                return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
+            }
+
+            NodeAccumulativeVotes::<T>::insert(who.clone(), 0);
+            let current_index = CurrentSessionIndex::<T>::get();
+            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
+            
+            let node_metadata = NodeMetadataStruct {
+                name: BoundedVec::try_from(b"Auto-promoted candidate".to_vec()).unwrap_or_default(),
+                sharing_percent: 50, // Default 50% sharing
+                index_of_last_percent_change: current_index,
+            };
+            NodeMetadata::<T>::insert(who.clone(), node_metadata);
+            
+            Self::deposit_event(Event::CandidacySubmitted(who.clone()));
+            Ok(())
+        }
+
+        fn remove_candidate(who: &T::AccountId) -> DispatchResult {
+            if !Self::is_candidate(who) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+
+            let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
+            let mut prefix_iterator = NodeToUserVotesTotals::<T>::iter_prefix((who.clone(),));
+            while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
+                support_to_remove.push((supporter, delegated_votes));
+            }
+            for support in support_to_remove {
+                Self::remove_votes_from_candidate(&support.0, who, support.1);
+            }
+            
+            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
+            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count.saturating_sub(1));
+            NodeMetadata::<T>::remove(who.clone());
+            
+            Self::deposit_event(Event::CandidacyRemoved(who.clone()));
+            Ok(())
+        }
+
+        fn is_candidate(who: &T::AccountId) -> bool {
+            NodeAccumulativeVotes::<T>::contains_key(who)
+        }
+    }
+
     impl<T: Config> SessionManager<T::AccountId> for Pallet<T> {
         fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
             let sorted_candidates_opt = Self::get_sorted_candidates();
