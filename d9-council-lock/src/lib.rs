@@ -10,6 +10,7 @@ use frame_support::{
 };
 pub use pallet::*;
 pub use types::*;
+use pallet_d9_punishment::{PenaltyReporter, PenaltyType, Severity};
 pub type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 #[frame_support::pallet]
@@ -56,6 +57,8 @@ pub mod pallet {
         type ProposalFee: Get<BalanceOf<Self>>;
         ///get an estimate of a session's duration
         type SessionTimeEstimator: SessionTimeEstimator<Self>;
+        /// Penalty reporter for reporting governance locks
+        type PenaltyReporter: PenaltyReporter<Self::AccountId, BlockNumberFor<Self>>;
     }
 
     type MomentOf<T> = <T as pallet_timestamp::Config>::Moment;
@@ -97,6 +100,17 @@ pub mod pallet {
     #[pallet::getter(fn locked_accounts)]
     pub type LockedAccounts<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, AccountLock<T>, OptionQuery>;
+
+    /// Tracks penalty IDs for locked accounts
+    #[pallet::storage]
+    #[pallet::getter(fn account_penalty_ids)]
+    pub type AccountPenaltyIds<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        <T::PenaltyReporter as PenaltyReporter<T::AccountId, BlockNumberFor<T>>>::PenaltyId,
+        OptionQuery,
+    >;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -609,7 +623,7 @@ pub mod pallet {
             return Ok(());
         }
 
-        /// lock user funds
+        /// lock user funds and report to punishment system
         fn lock_funds(account_id: &T::AccountId) -> () {
             T::LockableCurrency::set_lock(
                 T::LockIdentifier::get(),
@@ -617,11 +631,29 @@ pub mod pallet {
                 1u32.into(),
                 WithdrawReasons::all(),
             );
+            
+            // Report to punishment system if not already reported
+            if !AccountPenaltyIds::<T>::contains_key(account_id) {
+                if let Ok(penalty_id) = T::PenaltyReporter::report_penalty(
+                    account_id,
+                    PenaltyType::GovernanceLock,
+                    Severity::Critical,
+                    None, // Permanent until unlocked by governance
+                ) {
+                    AccountPenaltyIds::<T>::insert(account_id, penalty_id);
+                }
+            }
         }
 
-        /// unlock user funds
+        /// unlock user funds and revoke penalty
         fn unlock_funds(account_id: &T::AccountId) -> () {
             T::LockableCurrency::remove_lock(T::LockIdentifier::get(), &account_id);
+            
+            // Revoke penalty if exists
+            if let Some(penalty_id) = AccountPenaltyIds::<T>::get(account_id) {
+                let _ = T::PenaltyReporter::revoke_penalty(penalty_id);
+                AccountPenaltyIds::<T>::remove(account_id);
+            }
         }
 
         fn transfer_funds(

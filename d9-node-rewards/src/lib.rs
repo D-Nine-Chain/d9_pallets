@@ -4,6 +4,7 @@ use sp_staking::SessionIndex;
 mod structs;
 use frame_support::{traits::Currency, PalletId};
 pub use pallet::*;
+use pallet_d9_punishment::RewardRestriction;
 
 pub type BalanceOf<T> = <<T as pallet_contracts::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
@@ -29,7 +30,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_contracts::Config {
+    pub trait Config: frame_system::Config + pallet_contracts::Config + pallet_d9_governance::HasAuthorityProvider<Self::AccountId> {
         type CurrencySubUnits: Get<BalanceOf<Self>>;
 
         type Currency: Currency<Self::AccountId>;
@@ -38,6 +39,9 @@ pub mod pallet {
 
         #[pallet::constant]
         type PalletId: Get<PalletId>;
+        
+        /// Reward restriction checker
+        type RewardRestriction: RewardRestriction<Self::AccountId>;
     }
 
     #[pallet::storage]
@@ -67,7 +71,7 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn set_pallet_admin(origin: OriginFor<T>, new_admin: T::AccountId) -> DispatchResult {
-            Self::root_or_admin(origin)?;
+            Self::ensure_root_governance_or_admin(origin)?;
             PalletAdmin::<T>::put(new_admin);
             Ok(())
         }
@@ -78,27 +82,42 @@ pub mod pallet {
             origin: OriginFor<T>,
             new_contract: T::AccountId,
         ) -> DispatchResult {
-            Self::root_or_admin(origin)?;
+            Self::ensure_root_governance_or_admin(origin)?;
             NodeRewardContract::<T>::put(new_contract);
             Ok(())
         }
     }
 
     impl<T: Config> Pallet<T> {
-        fn root_or_admin(origin: OriginFor<T>) -> Result<(), BadOrigin> {
-            let origin = ensure_signed_or_root(origin)?;
-            match origin {
-                Some(caller) => {
-                    let admin = PalletAdmin::<T>::get();
-                    if admin.is_some() && admin.unwrap() == caller {
-                        return Ok(());
-                    } else {
-                        return Err(BadOrigin);
-                    }
-                }
-                None => {
-                    return Ok(());
-                }
+        /// Check if a validator has reward restrictions
+        pub fn check_reward_restriction(validator: &T::AccountId) -> (bool, u8) {
+            let restriction = T::RewardRestriction::get_restriction(validator);
+            (restriction.is_blocked, restriction.reduction_percent)
+        }
+        
+        /// Get filtered rewards list excluding blocked validators
+        pub fn get_eligible_validators(validators: Vec<(T::AccountId, u64)>) -> Vec<(T::AccountId, u64)> {
+            validators.into_iter()
+                .filter(|(validator, _)| {
+                    let restriction = T::RewardRestriction::get_restriction(validator);
+                    !restriction.is_blocked
+                })
+                .collect()
+        }
+        
+        fn ensure_root_governance_or_admin(origin: OriginFor<T>) -> Result<(), BadOrigin> {
+            // First try root or governance
+            if pallet_d9_governance::ensure_root_or_governance::<T>(origin.clone()).is_ok() {
+                return Ok(());
+            }
+            
+            // Then check if it's the admin
+            let caller = ensure_signed(origin)?;
+            let admin = PalletAdmin::<T>::get();
+            if admin.is_some() && admin.unwrap() == caller {
+                Ok(())
+            } else {
+                Err(BadOrigin)
             }
         }
 

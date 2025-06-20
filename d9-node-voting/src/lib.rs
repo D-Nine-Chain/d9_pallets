@@ -6,6 +6,7 @@ use frame_support::traits::Currency;
 pub use pallet::*;
 use sp_arithmetic::Perquintill;
 pub use types::*;
+use pallet_d9_candidate_registry::CandidateManager;
 
 pub type BalanceOf<T> = <<T as pallet_contracts::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
@@ -20,10 +21,7 @@ pub mod pallet {
         Blake2_128Concat, BoundedVec,
     };
     //  use sp_std::vec;
-    use frame_system::{
-        ensure_root,
-        pallet_prelude::{OriginFor, *},
-    };
+    use frame_system::pallet_prelude::{OriginFor, *};
 
     use pallet_session::SessionManager;
     use sp_runtime::Saturating;
@@ -35,7 +33,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_contracts::Config {
+    pub trait Config: frame_system::Config + pallet_contracts::Config + pallet_d9_governance::HasAuthorityProvider<Self::AccountId> {
         type CurrencySubUnits: Get<BalanceOf<Self>>;
         type Currency: Currency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -43,6 +41,7 @@ pub mod pallet {
         type MaxValidatorNodes: Get<u32>;
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
         type ReferendumManager: ReferendumManager;
+        type CandidateManager: CandidateManager<Self::AccountId, NodeMetadataStruct>;
     }
 
     /// defines the voting power of a user
@@ -177,37 +176,8 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
+
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn submit_candidacy(
-            origin: OriginFor<T>,
-            candidate_metadata: NodeMetadataStruct,
-        ) -> DispatchResult {
-            let candidate_node = ensure_signed(origin)?;
-            let candidate_votes_opt = NodeAccumulativeVotes::<T>::get(candidate_node.clone());
-            if candidate_votes_opt.is_some() {
-                return Err(Error::<T>::CandidateAlreadyExists.into());
-            }
-            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
-            let max_candidates = T::MaxCandidates::get();
-            if current_candidate_count + 1 > max_candidates {
-                return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
-            }
-
-            NodeAccumulativeVotes::<T>::insert(candidate_node.clone(), 0);
-            let current_index = CurrentSessionIndex::<T>::get();
-            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
-            let node_metadata: NodeMetadataStruct = NodeMetadataStruct {
-                name: candidate_metadata.name.clone(),
-                sharing_percent: candidate_metadata.sharing_percent.clone(),
-                index_of_last_percent_change: current_index,
-            };
-            NodeMetadata::<T>::insert(candidate_node.clone(), node_metadata);
-            Self::deposit_event(Event::CandidacySubmitted(candidate_node));
-            Ok(())
-        }
-
-        #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(5, 5))]
         pub fn add_voting_interest(
             origin: OriginFor<T>,
@@ -232,7 +202,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(2)]
+        #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn delegate_votes(
             origin: OriginFor<T>,
@@ -257,7 +227,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(3)]
+        #[pallet::call_index(2)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn remove_candidacy(origin: OriginFor<T>) -> DispatchResult {
             let candidate: T::AccountId = ensure_signed(origin)?;
@@ -276,7 +246,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(4)]
+        #[pallet::call_index(3)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn try_remove_votes_from_candidate(
             origin: OriginFor<T>,
@@ -299,7 +269,7 @@ pub mod pallet {
             Self::remove_votes_from_candidate(&voter, &candidate, votes);
             Ok(())
         }
-        #[pallet::call_index(5)]
+        #[pallet::call_index(4)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn redistribute_votes(
             origin: OriginFor<T>,
@@ -319,7 +289,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(6)]
+        #[pallet::call_index(5)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn change_candidate_name(
             origin: OriginFor<T>,
@@ -339,7 +309,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(7)]
+        #[pallet::call_index(6)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn change_candidate_supporter_share(
             origin: OriginFor<T>,
@@ -372,19 +342,20 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(8)]
+        #[pallet::call_index(7)]
         #[pallet::weight(T::DbWeight::get().reads_writes(1, 1))]
         pub fn set_pallet_admin(origin: OriginFor<T>, new_admin: T::AccountId) -> DispatchResult {
-            let caller = ensure_signed(origin.clone())?;
-            let current_admin = PalletAdmin::<T>::get();
-            if current_admin.is_some() {
-                ensure!(
-                    current_admin.unwrap() == caller,
-                    "Only the current admin can set a new admin"
-                );
-            } else {
-                ensure_root(origin)?;
+            let caller_result = ensure_signed(origin.clone());
+            if let Ok(caller) = caller_result {
+                let current_admin = PalletAdmin::<T>::get();
+                if current_admin.is_some() && current_admin.unwrap() == caller {
+                    // Current admin can set new admin
+                    PalletAdmin::<T>::put(new_admin);
+                    return Ok(());
+                }
             }
+            // Otherwise need root or governance
+            pallet_d9_governance::ensure_root_or_governance::<T>(origin)?;
             PalletAdmin::<T>::put(new_admin);
             Ok(())
         }
@@ -560,7 +531,7 @@ pub mod pallet {
         }
 
         fn is_valid_candidate(candidate: &T::AccountId) -> bool {
-            NodeAccumulativeVotes::<T>::contains_key(candidate.clone())
+            T::CandidateManager::is_candidate(candidate)
         }
 
         fn delegate_votes_to_candidates(
@@ -655,65 +626,6 @@ pub mod pallet {
             UsersVotingInterests::<T>::insert(delegator.clone(), user_voting_interests);
         }
     }
-    pub trait CandidateManager<AccountId> {
-        fn add_candidate(who: &AccountId) -> DispatchResult;
-        fn remove_candidate(who: &AccountId) -> DispatchResult;
-        fn is_candidate(who: &AccountId) -> bool;
-    }
-
-    impl<T: Config> CandidateManager<T::AccountId> for Pallet<T> {
-        fn add_candidate(who: &T::AccountId) -> DispatchResult {
-            let candidate_votes_opt = NodeAccumulativeVotes::<T>::get(who.clone());
-            if candidate_votes_opt.is_some() {
-                return Err(Error::<T>::CandidateAlreadyExists.into());
-            }
-            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
-            let max_candidates = T::MaxCandidates::get();
-            if current_candidate_count + 1 > max_candidates {
-                return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
-            }
-
-            NodeAccumulativeVotes::<T>::insert(who.clone(), 0);
-            let current_index = CurrentSessionIndex::<T>::get();
-            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
-            
-            let node_metadata = NodeMetadataStruct {
-                name: BoundedVec::try_from(b"Auto-promoted candidate".to_vec()).unwrap_or_default(),
-                sharing_percent: 50, // Default 50% sharing
-                index_of_last_percent_change: current_index,
-            };
-            NodeMetadata::<T>::insert(who.clone(), node_metadata);
-            
-            Self::deposit_event(Event::CandidacySubmitted(who.clone()));
-            Ok(())
-        }
-
-        fn remove_candidate(who: &T::AccountId) -> DispatchResult {
-            if !Self::is_candidate(who) {
-                return Err(Error::<T>::CandidateDoesNotExist.into());
-            }
-
-            let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
-            let mut prefix_iterator = NodeToUserVotesTotals::<T>::iter_prefix((who.clone(),));
-            while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
-                support_to_remove.push((supporter, delegated_votes));
-            }
-            for support in support_to_remove {
-                Self::remove_votes_from_candidate(&support.0, who, support.1);
-            }
-            
-            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
-            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count.saturating_sub(1));
-            NodeMetadata::<T>::remove(who.clone());
-            
-            Self::deposit_event(Event::CandidacyRemoved(who.clone()));
-            Ok(())
-        }
-
-        fn is_candidate(who: &T::AccountId) -> bool {
-            NodeAccumulativeVotes::<T>::contains_key(who)
-        }
-    }
 
     impl<T: Config> SessionManager<T::AccountId> for Pallet<T> {
         fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
@@ -792,6 +704,74 @@ pub mod pallet {
 
             let _ = T::NodeRewardManager::update_rewards(end_index, sorted_nodes_with_votes);
             let _ = T::ReferendumManager::end_active_votes(end_index);
+        }
+    }
+
+    // Implementation to handle candidate management from candidate-registry
+    impl<T: Config> Pallet<T> {
+        /// Called by candidate-registry when a candidate is added
+        pub fn add_candidate_internal(who: &T::AccountId, metadata: NodeMetadataStruct) -> DispatchResult {
+            let current_candidate_count = CurrentNumberOfCandidatesNodes::<T>::get();
+            let max_candidates = T::MaxCandidates::get();
+            if current_candidate_count + 1 > max_candidates {
+                return Err(Error::<T>::AtMaximumNumberOfCandidates.into());
+            }
+
+            // Initialize with 0 votes
+            NodeAccumulativeVotes::<T>::insert(who.clone(), 0);
+            CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
+            NodeMetadata::<T>::insert(who.clone(), metadata);
+            
+            Self::deposit_event(Event::CandidacySubmitted(who.clone()));
+            Ok(())
+        }
+
+        /// Called by candidate-registry when a candidate is removed
+        pub fn remove_candidate_internal(who: &T::AccountId) -> DispatchResult {
+            if !NodeAccumulativeVotes::<T>::contains_key(who) {
+                return Err(Error::<T>::CandidateDoesNotExist.into());
+            }
+
+            // Remove all votes for this candidate
+            let mut support_to_remove: Vec<(T::AccountId, u64)> = Vec::new();
+            let mut prefix_iterator = NodeToUserVotesTotals::<T>::iter_prefix((who.clone(),));
+            while let Some((supporter, delegated_votes)) = prefix_iterator.next() {
+                support_to_remove.push((supporter, delegated_votes));
+            }
+            for support in support_to_remove {
+                Self::remove_votes_from_candidate(&support.0, who, support.1);
+            }
+
+            // Clean up storage
+            NodeAccumulativeVotes::<T>::remove(who);
+            NodeMetadata::<T>::remove(who);
+            let current_count = CurrentNumberOfCandidatesNodes::<T>::get();
+            CurrentNumberOfCandidatesNodes::<T>::put(current_count.saturating_sub(1));
+
+            Self::deposit_event(Event::CandidacyRemoved(who.clone()));
+            Ok(())
+        }
+    }
+    
+    // Implementation of VotingEligibility trait for governance
+    impl<T: Config> pallet_d9_governance::VotingEligibility<T::AccountId> for Pallet<T> {
+        fn can_propose(who: &T::AccountId) -> bool {
+            // Check if account is in the top N candidates
+            if let Some(sorted_candidates) = Self::get_sorted_candidates() {
+                sorted_candidates.contains(who)
+            } else {
+                false
+            }
+        }
+        
+        fn can_vote(who: &T::AccountId) -> bool {
+            // Check if account is a validator or in the top N candidates
+            CurrentValidatorVoteStats::<T>::contains_key(who) || Self::can_propose(who)
+        }
+        
+        fn get_vote_weight(who: &T::AccountId) -> Option<u64> {
+            // Return the accumulated votes for this account
+            NodeAccumulativeVotes::<T>::get(who)
         }
     }
 }
