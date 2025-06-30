@@ -22,6 +22,7 @@ pallet-session = { version = "4.0.0-dev", default-features = false, git = "https
 sp-application-crypto = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-io = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 pallet-d9-candidate-registry = { version = "1.0.0", default-features = false, path = "../d9-candidate-registry" }
+pallet-d9-node-primitives = { version = "1.0.0", default-features = false, path = "../d9-node-primitives" }
 
 [dev-dependencies]
 sp-core = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
@@ -43,6 +44,7 @@ std = [
     "sp-application-crypto/std",
     "sp-io/std",
     "pallet-d9-candidate-registry/std",
+    "pallet-d9-node-primitives/std",
 ]
 
 runtime-benchmarks = [

@@ -13,7 +13,8 @@ use sp_runtime::{
     traits::Dispatchable,
     transaction_validity::{TransactionValidityError, InvalidTransaction},
 };
-use frame_support::dispatch::{DispatchInfo, PostDispatchInfo, DispatchInfoOf, PostDispatchInfoOf};
+use frame_support::dispatch::{DispatchInfo, PostDispatchInfo};
+use sp_runtime::traits::{DispatchInfoOf, PostDispatchInfoOf};
 
 // Type aliases for fee handler
 type BalanceOf<T> = <<T as pallet::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -239,6 +240,8 @@ pub mod pallet {
         CallSizeTooLarge,
         /// Not admin
         NotAdmin,
+        /// Invalid proposal data
+        InvalidProposal,
         /// Insufficient turnout
         InsufficientTurnout,
         /// Insufficient approval
@@ -635,6 +638,12 @@ pub mod pallet {
                 ParameterType::I32 => {
                     ensure!(value.len() >= 4, Error::<T>::InvalidParameterType);
                 },
+                ParameterType::Bool => {
+                    ensure!(value.len() >= 1, Error::<T>::InvalidParameterType);
+                },
+                ParameterType::Bytes => {
+                    // Bytes can be any length within the max call size
+                },
             }
             Ok(())
         }
@@ -654,12 +663,22 @@ pub mod pallet {
             param_id: Vec<u8>,
             new_value: Vec<u8>,
         ) -> DispatchResult {
+            // Convert Vec<u8> to u128 - parameter pallet expects u128
+            let value = if new_value.len() >= 16 {
+                u128::from_le_bytes(new_value[..16].try_into().map_err(|_| Error::<T>::InvalidProposal)?)
+            } else {
+                // Pad with zeros if less than 16 bytes
+                let mut padded = [0u8; 16];
+                padded[..new_value.len()].copy_from_slice(&new_value);
+                u128::from_le_bytes(padded)
+            };
+            
             // Since governance pallet is authorized, we can directly call the parameters pallet
             pallet_d9_parameters::Pallet::<T>::set_parameter(
                 frame_system::RawOrigin::Signed(Self::account_id()).into(),
                 pallet_id,
                 param_id,
-                new_value,
+                value,
             )?;
             
             Ok(())
@@ -699,15 +718,12 @@ pub mod pallet {
         fn execute_fee_multiplier_change(
             new_multiplier: u128,
         ) -> DispatchResult {
-            // Convert u128 to bytes for storage in parameters pallet
-            let multiplier_bytes = new_multiplier.to_le_bytes().to_vec();
-            
             // Set the fee multiplier in the parameters pallet
             pallet_d9_parameters::Pallet::<T>::set_parameter(
                 frame_system::RawOrigin::Signed(Self::account_id()).into(),
                 b"d9-governance".to_vec(),
                 b"fee_multiplier".to_vec(),
-                multiplier_bytes,
+                new_multiplier,
             )?;
             
             Ok(())
@@ -728,7 +744,18 @@ pub mod pallet {
 }
 
 // Type definitions
-use pallet_d9_parameters::ParameterType;
+// ParameterType import removed - not needed
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub enum ParameterType {
+    U8,
+    U32,
+    U64,
+    U128,
+    I32,
+    Bool,
+    Bytes,
+}
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct ParamSpec {
@@ -738,7 +765,7 @@ pub struct ParamSpec {
     pub max_value: Option<u128>,
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 #[scale_info(skip_type_params(T))]
 pub struct ContractCallTemplate<T: Config> {
     pub name: BoundedVec<u8, ConstU32<128>>,
@@ -747,7 +774,7 @@ pub struct ContractCallTemplate<T: Config> {
     pub param_specs: BoundedVec<ParamSpec, T::MaxTemplateParams>,
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 #[scale_info(skip_type_params(T))]
 pub enum ProposalType<T: Config> {
     ParameterChange {
@@ -764,7 +791,7 @@ pub enum ProposalType<T: Config> {
     },
 }
 
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 #[scale_info(skip_type_params(T))]
 pub struct Proposal<T: Config> {
     pub proposer: T::AccountId,
@@ -802,7 +829,7 @@ where
         _tip: Self::Balance,
     ) -> Result<Self::LiquidityInfo, TransactionValidityError> {
         // Check if we have a contract address configured
-        if let Some(contract_address) = pallet::NodeRewardContractAddress::<R>::get() {
+        if let Some(_contract_address) = pallet::NodeRewardContractAddress::<R>::get() {
             // Withdraw fee from the user
             match <R as pallet::Config>::Currency::withdraw(
                 who,

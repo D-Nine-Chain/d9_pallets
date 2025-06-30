@@ -3,7 +3,7 @@ use crate::pallet::Pallet;
 use crate::BalanceOf;
 use codec::MaxEncodedLen;
 use frame_support::RuntimeDebugNoBound;
-use frame_support::{inherent::Vec, pallet_prelude::*, BoundedVec};
+use frame_support::{inherent::Vec, pallet_prelude::*};
 use sp_runtime::traits::Convert;
 use sp_staking::SessionIndex;
 
@@ -93,15 +93,6 @@ pub struct ValidatorVoteStats<T: Config> {
     pub total_votes: u64,
     pub self_votes: u64,
     pub delegated_votes: u64,
-}
-
-#[derive(
-    PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen,
-)]
-pub struct NodeMetadataStruct {
-    pub name: BoundedVec<u8, ConstU32<128>>,
-    pub sharing_percent: u8,
-    pub index_of_last_percent_change: u32,
 }
 
 pub struct ValidatorStatsOf<T: Config>(PhantomData<T>);

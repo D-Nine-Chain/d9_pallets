@@ -2,7 +2,6 @@
 
 mod types;
 
-use codec::FullCodec;
 use frame_support::{pallet_prelude::*, traits::Get, weights::Weight};
 use frame_system::pallet_prelude::*;
 use sp_application_crypto::RuntimeAppPublic;
@@ -16,46 +15,13 @@ use sp_runtime::{
 use sp_std::vec::Vec;
 
 pub use pallet::*;
-pub use types::*;
 
-/// Trait for managing candidates
-pub trait CandidateManager<AccountId, Metadata> {
-    /// Add a new candidate with metadata
-    fn add_candidate(who: &AccountId, metadata: Metadata) -> DispatchResult;
-    
-    /// Remove an existing candidate
-    fn remove_candidate(who: &AccountId) -> DispatchResult;
-    
-    /// Check if an account is a candidate
-    fn is_candidate(who: &AccountId) -> bool;
-}
-
-pub trait PromotionCriteria<AccountId> {
-    type CriteriaData: FullCodec + Clone + PartialEq + Eq + TypeInfo + MaxEncodedLen + Default;
-    type RegistrationData: FullCodec + Clone + PartialEq + Eq + TypeInfo + MaxEncodedLen;
-
-    fn validate_registration_data(data: &Self::RegistrationData) -> bool;
-
-    fn initialize_criteria_data<B>(
-        who: &AccountId,
-        starting_block: B,
-        registration_data: &Self::RegistrationData,
-    ) -> Self::CriteriaData;
-
-    fn update_participation_data<B>(
-        who: &AccountId,
-        data: &mut Self::CriteriaData,
-        block: B,
-    ) -> DispatchResult;
-
-    fn evaluate_promotion_eligibility(who: &AccountId, data: &Self::CriteriaData) -> bool;
-
-    fn cleanup_criteria_data(who: &AccountId);
-
-    fn on_participation_started(who: &AccountId, data: &Self::CriteriaData);
-
-    fn on_participation_ended(who: &AccountId, data: &Self::CriteriaData);
-}
+// Import traits and types from primitives
+use pallet_d9_node_primitives::{
+    PromotionCriteria, CandidateManager,
+    ValidationChallenge, ValidationFailureReason,
+    RegistryEventHandler, VotingEventHandler
+};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -68,7 +34,9 @@ pub mod pallet {
     #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
-    pub type SessionKeysOf<T> = SessionKeys<
+    /// ImOnlineId used by liveness check, the others are signature validated
+    /// to make sure they setup the node correctly.
+    pub type SessionKeysOf<T> = pallet_d9_node_primitives::SessionKeys<
         <T as Config>::AuraId,
         <T as Config>::AuthorityId,
         <T as Config>::GrandpaId,
@@ -116,6 +84,9 @@ pub mod pallet {
             + RuntimeAppPublic
             + MaybeSerializeDeserialize
             + MaxEncodedLen;
+
+        /// Handler for registry events
+        type RegistryEventHandler: RegistryEventHandler<Self::AccountId>;
     }
 
     #[pallet::storage]
@@ -153,13 +124,8 @@ pub mod pallet {
     /// Tracks all active candidates
     #[pallet::storage]
     #[pallet::getter(fn candidates)]
-    pub type Candidates<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        T::CandidateMetadata,
-        OptionQuery,
-    >;
+    pub type Candidates<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::CandidateMetadata, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -218,6 +184,10 @@ pub mod pallet {
             Ok(())
         }
 
+        /// origin is aspirant (assumed reward recipient)
+        /// session_keys assumed to be swappable
+        /// which means one can change sessions keys and
+        /// not affect node rewards.
         #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(3, 2))]
         pub fn become_aspirant(
@@ -263,6 +233,10 @@ pub mod pallet {
 
             AspirantData::<T>::remove(&who);
             ValidatedAspirants::<T>::remove(&who);
+            
+            // Notify handler before cleanup
+            T::RegistryEventHandler::on_aspirant_removed(&who);
+            
             T::PromotionCriteria::on_participation_ended(&who, &criteria_data);
             T::PromotionCriteria::cleanup_criteria_data(&who);
 
@@ -464,6 +438,10 @@ pub mod pallet {
                 T::PromotionCriteria::initialize_criteria_data(who, current_block, &keys);
 
             AspirantData::<T>::insert(who, &criteria_data);
+            
+            // Notify handler that keys are validated
+            T::RegistryEventHandler::on_keys_validated(who, &keys.encode());
+            
             T::PromotionCriteria::on_participation_started(who, &criteria_data);
 
             Self::deposit_event(Event::KeysValidated { who: who.clone() });
@@ -544,9 +522,11 @@ pub mod pallet {
         ) -> DispatchResult {
             // Use default metadata for now - in real use, this could come from criteria_data
             let metadata = T::CandidateMetadata::default();
-            
-            <Self as CandidateManager<T::AccountId, T::CandidateMetadata>>::add_candidate(who, metadata)
-                .map_err(|_| Error::<T>::CandidateManagerError)?;
+
+            <Self as CandidateManager<T::AccountId, T::CandidateMetadata>>::add_candidate(
+                who, metadata,
+            )
+            .map_err(|_| Error::<T>::CandidateManagerError)?;
 
             AspirantData::<T>::remove(who);
             ValidatedAspirants::<T>::remove(who);
@@ -599,25 +579,38 @@ pub mod pallet {
         fn add_candidate(who: &T::AccountId, metadata: T::CandidateMetadata) -> DispatchResult {
             // Store in our registry
             Candidates::<T>::insert(who, metadata.clone());
-            
+
             // Notify node-voting pallet to add this candidate
             // Note: This requires the runtime to implement the necessary trait binding
             // In runtime configuration, CandidateMetadata should be NodeMetadataStruct
-            
+
             Ok(())
         }
 
         fn remove_candidate(who: &T::AccountId) -> DispatchResult {
             Candidates::<T>::remove(who);
-            
+
             // Notify node-voting pallet to remove this candidate
             // Note: This requires runtime configuration
-            
+
             Ok(())
         }
 
         fn is_candidate(who: &T::AccountId) -> bool {
             Candidates::<T>::contains_key(who)
+        }
+    }
+
+    // Implement handler for voting events
+    impl<T: Config> VotingEventHandler<T::AccountId> for Pallet<T> {
+        fn on_candidate_removed(who: &T::AccountId) {
+            // Clean up any aspirant data if they were removed from voting
+            AspirantData::<T>::remove(who);
+            ValidatedAspirants::<T>::remove(who);
+        }
+        
+        fn on_candidate_added(_who: &T::AccountId) {
+            // No action needed
         }
     }
 }

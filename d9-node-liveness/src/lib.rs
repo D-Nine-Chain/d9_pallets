@@ -2,7 +2,10 @@
 
 use frame_support::{inherent::Vec, pallet_prelude::*, traits::Get};
 use frame_system::pallet_prelude::*;
-use pallet_d9_candidate_registry::PromotionCriteria;
+use pallet_d9_node_primitives::{
+    PromotionCriteria, SessionKeys,
+    RegistryEventHandler, LivenessEventHandler, VotingEventHandler
+};
 use sp_application_crypto::AppCrypto;
 use sp_runtime::{
     offchain::storage_lock::{BlockAndTime, StorageLock},
@@ -56,6 +59,9 @@ pub mod pallet {
 
         /// The identifier type for an offchain worker.
         type AuthorityId: AppCrypto + Member + Parameter;
+
+        /// Handler for liveness events
+        type LivenessEventHandler: LivenessEventHandler<Self::AccountId>;
     }
 
     #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo, MaxEncodedLen)]
@@ -249,7 +255,12 @@ pub mod pallet {
 
     impl<T: Config> PromotionCriteria<T::AccountId> for Pallet<T> {
         type CriteriaData = LivenessTracker<T>;
-        type RegistrationData = pallet_d9_candidate_registry::SessionKeysOf<T>;
+        type RegistrationData = SessionKeys<
+            <T as pallet_d9_candidate_registry::Config>::AuraId,
+            <T as pallet_d9_candidate_registry::Config>::AuthorityId,
+            <T as pallet_d9_candidate_registry::Config>::GrandpaId,
+            <T as pallet_d9_candidate_registry::Config>::ImOnlineId,
+        >;
 
         fn validate_registration_data(_keys: &Self::RegistrationData) -> bool {
             // Validate that all keys are properly formatted
@@ -287,6 +298,11 @@ pub mod pallet {
                         who: who.clone(),
                         windows_completed: data.completed_windows,
                     });
+                    
+                    // Check if ready for promotion
+                    if data.completed_windows >= T::MinQualifyingWindows::get() {
+                        T::LivenessEventHandler::on_promotion_criteria_met(who);
+                    }
                 } else {
                     data.status = WindowStatus::Failed;
                     Self::deposit_event(Event::ParticipationFailed { who: who.clone() });
@@ -609,6 +625,37 @@ pub mod pallet {
                 }
                 _ => InvalidTransaction::Call.into(),
             }
+        }
+    }
+
+    // Implement registry event handler
+    impl<T: Config> RegistryEventHandler<T::AccountId> for Pallet<T> {
+        fn on_keys_validated(who: &T::AccountId, keys: &[u8]) {
+            // Decode and start tracking
+            if let Ok(session_keys) = SessionKeys::<_, _, _, _>::decode(&mut &keys[..]) {
+                // Initialize tracking
+                ProofChains::<T>::insert(who, BoundedVec::new());
+                Self::deposit_event(Event::LivenessTrackingStarted { who: who.clone() });
+            }
+        }
+        
+        fn on_aspirant_removed(who: &T::AccountId) {
+            // Stop tracking
+            ProofChains::<T>::remove(who);
+            Self::deposit_event(Event::LivenessTrackingEnded { who: who.clone() });
+        }
+    }
+
+    // Implement voting event handler  
+    impl<T: Config> VotingEventHandler<T::AccountId> for Pallet<T> {
+        fn on_candidate_added(who: &T::AccountId) {
+            // Stop tracking - they're now a candidate
+            ProofChains::<T>::remove(who);
+            Self::deposit_event(Event::LivenessTrackingEnded { who: who.clone() });
+        }
+        
+        fn on_candidate_removed(_who: &T::AccountId) {
+            // No action needed
         }
     }
 }

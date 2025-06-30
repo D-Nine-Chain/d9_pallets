@@ -6,7 +6,7 @@ use frame_support::traits::Currency;
 pub use pallet::*;
 use sp_arithmetic::Perquintill;
 pub use types::*;
-use pallet_d9_candidate_registry::CandidateManager;
+use pallet_d9_node_primitives::{CandidateManager, NodeMetadataStruct, LivenessEventHandler, VotingEventHandler};
 
 pub type BalanceOf<T> = <<T as pallet_contracts::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
@@ -33,7 +33,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_contracts::Config + pallet_d9_governance::HasAuthorityProvider<Self::AccountId> {
+    pub trait Config: frame_system::Config + pallet_contracts::Config {
         type CurrencySubUnits: Get<BalanceOf<Self>>;
         type Currency: Currency<Self::AccountId>;
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -42,6 +42,9 @@ pub mod pallet {
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
         type ReferendumManager: ReferendumManager;
         type CandidateManager: CandidateManager<Self::AccountId, NodeMetadataStruct>;
+        
+        /// Handler for voting events
+        type VotingEventHandler: VotingEventHandler<Self::AccountId>;
     }
 
     /// defines the voting power of a user
@@ -354,8 +357,8 @@ pub mod pallet {
                     return Ok(());
                 }
             }
-            // Otherwise need root or governance
-            pallet_d9_governance::ensure_root_or_governance::<T>(origin)?;
+            // Otherwise need root
+            ensure_root(origin)?;
             PalletAdmin::<T>::put(new_admin);
             Ok(())
         }
@@ -722,6 +725,9 @@ pub mod pallet {
             CurrentNumberOfCandidatesNodes::<T>::put(current_candidate_count + 1);
             NodeMetadata::<T>::insert(who.clone(), metadata);
             
+            // Notify handler
+            T::VotingEventHandler::on_candidate_added(who);
+            
             Self::deposit_event(Event::CandidacySubmitted(who.clone()));
             Ok(())
         }
@@ -748,30 +754,27 @@ pub mod pallet {
             let current_count = CurrentNumberOfCandidatesNodes::<T>::get();
             CurrentNumberOfCandidatesNodes::<T>::put(current_count.saturating_sub(1));
 
+            // Notify handler
+            T::VotingEventHandler::on_candidate_removed(who);
+
             Self::deposit_event(Event::CandidacyRemoved(who.clone()));
             Ok(())
         }
     }
-    
-    // Implementation of VotingEligibility trait for governance
-    impl<T: Config> pallet_d9_governance::VotingEligibility<T::AccountId> for Pallet<T> {
-        fn can_propose(who: &T::AccountId) -> bool {
-            // Check if account is in the top N candidates
-            if let Some(sorted_candidates) = Self::get_sorted_candidates() {
-                sorted_candidates.contains(who)
-            } else {
-                false
+
+    // Implement liveness event handler
+    impl<T: Config> LivenessEventHandler<T::AccountId> for Pallet<T> {
+        fn on_promotion_criteria_met(who: &T::AccountId) {
+            // Add as candidate with default metadata
+            let metadata = NodeMetadataStruct::default();
+            
+            if let Err(e) = Self::add_candidate_internal(who, metadata) {
+                log::error!("Failed to add candidate {:?}: {:?}", who, e);
             }
         }
         
-        fn can_vote(who: &T::AccountId) -> bool {
-            // Check if account is a validator or in the top N candidates
-            CurrentValidatorVoteStats::<T>::contains_key(who) || Self::can_propose(who)
-        }
-        
-        fn get_vote_weight(who: &T::AccountId) -> Option<u64> {
-            // Return the accumulated votes for this account
-            NodeAccumulativeVotes::<T>::get(who)
+        fn on_stop_tracking(_who: &T::AccountId) {
+            // No action needed
         }
     }
 }
