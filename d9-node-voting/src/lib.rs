@@ -727,10 +727,15 @@ pub mod pallet {
         }
 
         fn end_session(end_index: SessionIndex) {
+            // Get validator vote stats before draining - these are the actual validators
+            let validators_with_votes: Vec<(T::AccountId, u64)> = CurrentValidatorVoteStats::<T>::iter()
+                .map(|(validator, stats)| (validator, stats.total_votes))
+                .collect();
+            
             let _ = CurrentValidatorVoteStats::<T>::drain();
-            let sorted_nodes_with_votes = Self::get_sorted_candidates_with_votes();
 
-            let _ = T::NodeRewardManager::update_rewards(end_index, sorted_nodes_with_votes);
+            // Only pass validators (not all candidates) to receive rewards
+            let _ = T::NodeRewardManager::update_rewards(end_index, validators_with_votes);
             let _ = T::ReferendumManager::end_active_votes(end_index);
         }
     }
