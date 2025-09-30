@@ -3,4 +3,5 @@
 .vscode
 .zed
 **/.DS_Store
-**/.claude/settings.local.json
+.claude/
+scripts/
