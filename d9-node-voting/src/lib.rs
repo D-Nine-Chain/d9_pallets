@@ -43,6 +43,10 @@ pub mod pallet {
         type MaxValidatorNodes: Get<u32>;
         type NodeRewardManager: NodeRewardManager<Self::AccountId>;
         type ReferendumManager: ReferendumManager;
+        /// Minimum lock period for delegated votes (in blocks)
+        /// Default: 14 days = 14 * 24 * 60 * 60 / 6 = 201,600 blocks (assuming 6s blocks)
+        #[pallet::constant]
+        type VoteLockPeriod: Get<BlockNumberFor<Self>>;
     }
 
     /// defines the voting power of a user
@@ -121,6 +125,18 @@ pub mod pallet {
     #[pallet::getter(fn pallet_admin)]
     pub type PalletAdmin<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
+    /// Tracks when delegated votes can be withdrawn.
+    /// Key: (voter, candidate) -> Value: block number when lock expires
+    #[pallet::storage]
+    #[pallet::getter(fn vote_lock_expiry)]
+    pub type VoteLockExpiry<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        (T::AccountId, T::AccountId),
+        BlockNumberFor<T>,
+        OptionQuery,
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -147,6 +163,8 @@ pub mod pallet {
         BurnAmountMustBeGreaterThan100,
         SupporterShareOutOfRange,
         CurrentValidatorCanNotChangeSharePercentage,
+        /// Votes are still locked and cannot be withdrawn or redistributed
+        VotesStillLocked,
     }
 
     #[pallet::genesis_config]
@@ -252,7 +270,21 @@ pub mod pallet {
             }
             let voting_interest = maybe_voting_interest.unwrap();
             Self::validate_delegations(&voting_interest, &delegations)?;
-            let _ = Self::delegate_votes_to_candidates(&delegator, delegations);
+
+            // Calculate lock expiry
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            let lock_until = current_block + T::VoteLockPeriod::get();
+
+            // Delegate votes and set lock for each delegation
+            for delegation in delegations.iter() {
+                Self::add_votes_to_candidate(&delegator, &delegation.candidate, delegation.votes);
+                // Set or extend lock expiry for this delegation
+                VoteLockExpiry::<T>::insert(
+                    (delegator.clone(), delegation.candidate.clone()),
+                    lock_until,
+                );
+            }
+
             Self::deposit_event(Event::VotesDelegatedBy(delegator));
             Ok(())
         }
@@ -287,6 +319,10 @@ pub mod pallet {
             if !Self::is_valid_candidate(&candidate) {
                 return Err(Error::<T>::CandidateDoesNotExist.into());
             }
+
+            // Check if votes are still locked
+            Self::ensure_votes_unlocked(&voter, &candidate)?;
+
             let delegated_votes =
                 UserToNodeVotesTotals::<T>::get((voter.clone(), candidate.clone()));
             if delegated_votes == 0 {
@@ -297,6 +333,12 @@ pub mod pallet {
             }
 
             Self::remove_votes_from_candidate(&voter, &candidate, votes);
+
+            // Clean up lock expiry if all votes removed
+            if votes == delegated_votes {
+                VoteLockExpiry::<T>::remove((voter.clone(), candidate.clone()));
+            }
+
             Ok(())
         }
         #[pallet::call_index(5)]
@@ -310,12 +352,23 @@ pub mod pallet {
             if !Self::is_valid_candidate(&to) || !Self::is_valid_candidate(&from) {
                 return Err(Error::<T>::CandidateDoesNotExist.into());
             }
+
+            // Check if votes are still locked on source candidate
+            Self::ensure_votes_unlocked(&voter, &from)?;
+
             let delegated_votes = UserToNodeVotesTotals::<T>::get((voter.clone(), from.clone()));
             if delegated_votes == 0 {
                 return Err(Error::<T>::VoterDidntDelegateToThisCandidate.into());
             }
             Self::remove_votes_from_candidate(&voter, &from, delegated_votes);
             Self::add_votes_to_candidate(&voter, &to, delegated_votes);
+
+            // Remove lock from source, set new lock on destination
+            VoteLockExpiry::<T>::remove((voter.clone(), from.clone()));
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            let lock_until = current_block + T::VoteLockPeriod::get();
+            VoteLockExpiry::<T>::insert((voter.clone(), to.clone()), lock_until);
+
             Ok(())
         }
 
@@ -391,6 +444,35 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// Ensures votes from voter to candidate are not locked
+        fn ensure_votes_unlocked(
+            voter: &T::AccountId,
+            candidate: &T::AccountId,
+        ) -> Result<(), Error<T>> {
+            if let Some(lock_expiry) = VoteLockExpiry::<T>::get((voter.clone(), candidate.clone())) {
+                let current_block = <frame_system::Pallet<T>>::block_number();
+                if current_block < lock_expiry {
+                    return Err(Error::<T>::VotesStillLocked);
+                }
+            }
+            Ok(())
+        }
+
+        /// Returns remaining lock time in blocks (for UI/queries)
+        /// Returns None if not locked, Some(blocks) if locked
+        pub fn get_vote_lock_remaining(
+            voter: T::AccountId,
+            candidate: T::AccountId,
+        ) -> Option<BlockNumberFor<T>> {
+            if let Some(lock_expiry) = VoteLockExpiry::<T>::get((voter.clone(), candidate.clone())) {
+                let current_block = <frame_system::Pallet<T>>::block_number();
+                if current_block < lock_expiry {
+                    return Some(lock_expiry - current_block);
+                }
+            }
+            None
+        }
+
         /// add voting interest to a user (for vote delegation)
         ///
         /// * `delegator` - the user to add voting interest to

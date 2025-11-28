@@ -1,10 +1,10 @@
-# Proposal: Session-Based Node Ranking Snapshot
+# Proposal: Vote Lockup Period for Node Delegation
 
 **Issue:** #16
 **Author:** D9 Core Team
 **Status:** Draft
 **Created:** 2024-11-27
-**Affects:** `d9-node-voting`, `d9-council-lock`
+**Affects:** `d9-node-voting`
 
 ---
 
@@ -24,20 +24,7 @@ A vote manipulation vulnerability exists in the council lock (freeze/unfreeze) v
 
 ### 1.3 Root Cause
 
-The `check_is_council_member()` function in `d9-council-lock` queries rankings in real-time via `RankingProvider::get_ranked_nodes()`. Rankings are computed dynamically from `NodeAccumulativeVotes`, which updates immediately when votes are moved.
-
-```rust
-// d9-council-lock/src/lib.rs:458-466
-fn check_is_council_member(account_id: &T::AccountId) -> Result<(), Error<T>> {
-    let ranked_nodes = Self::get_ranked_nodes()?;  // Real-time computation
-    if let Some(index) = ranked_nodes.iter().position(|x| x == account_id) {
-        if index < T::VotingCouncilSize::get() as usize {
-            return Ok(());
-        }
-    }
-    return Err(Error::<T>::NotValidCouncilMember);
-}
-```
+Vote delegation can be withdrawn and redistributed at any time with no restrictions, allowing rapid manipulation of node rankings during active governance votes.
 
 ---
 
@@ -45,74 +32,168 @@ fn check_is_council_member(account_id: &T::AccountId) -> Result<(), Error<T>> {
 
 ### 2.1 Overview
 
-Implement session-based ranking snapshots in `d9-node-voting`. Rankings will only update at session boundaries, making them stable within a session and preventing mid-session manipulation.
+Implement a **vote lockup period** in `d9-node-voting`. When a user delegates votes to a node, those votes are locked for a minimum period (default: 14 days) before they can be withdrawn or redistributed.
 
 ### 2.2 Design Principles
 
-1. **Single source of truth:** Node voting pallet owns the ranking snapshot
-2. **Session-aligned stability:** Rankings are immutable within a session
-3. **Minimal downstream impact:** Contracts and other pallets unaffected
-4. **No storage migration required:** Additive change only
+1. **Commitment model:** Votes represent a term-based commitment, like an election cycle
+2. **Direct prevention:** Votes cannot move during lockup, eliminating manipulation at the source
+3. **Predictable behavior:** Users know exactly when their votes unlock
+4. **No migration required:** Additive change only
 
 ---
 
 ## 3. Technical Specification
 
-### 3.1 New Storage Item
+### 3.1 New Config Constant
+
+Add to `d9-node-voting` Config trait:
+
+```rust
+/// Minimum lock period for delegated votes (in blocks)
+/// Default: 14 days = 14 * 24 * 60 * 60 / 6 = 201,600 blocks (assuming 6s blocks)
+#[pallet::constant]
+type VoteLockPeriod: Get<BlockNumberFor<Self>>;
+```
+
+### 3.2 New Storage Item
 
 Add to `d9-node-voting/src/lib.rs`:
 
 ```rust
-/// Snapshot of ranked nodes, updated at session boundaries.
-/// Used by RankingProvider to return stable rankings within a session.
+/// Tracks when delegated votes can be withdrawn.
+/// Key: (voter, candidate) -> Value: block number when lock expires
 #[pallet::storage]
-#[pallet::getter(fn session_ranked_nodes)]
-pub type SessionRankedNodes<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
+#[pallet::getter(fn vote_lock_expiry)]
+pub type VoteLockExpiry<T: Config> = StorageMap<
+    _,
+    Blake2_128Concat,
+    (T::AccountId, T::AccountId),
+    BlockNumberFor<T>,
+    OptionQuery
+>;
 ```
 
-### 3.2 Snapshot Update Logic
+### 3.3 Modify `delegate_votes()`
 
-Update the snapshot at session start in `new_session()`:
+When votes are delegated, set or extend the lock expiry:
 
 ```rust
-fn new_session(new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
-    // Update the session-stable ranking snapshot
-    let sorted_candidates = Self::get_sorted_candidates();
-    if let Some(ref candidates) = sorted_candidates {
-        SessionRankedNodes::<T>::put(candidates.clone());
+pub fn delegate_votes(
+    origin: OriginFor<T>,
+    delegations: Vec<ValidatorDelegation<T::AccountId>>,
+) -> DispatchResult {
+    let voter = ensure_signed(origin)?;
+    // ... existing validation ...
+
+    let current_block = <frame_system::Pallet<T>>::block_number();
+    let lock_until = current_block + T::VoteLockPeriod::get();
+
+    for delegation in delegations.iter() {
+        // ... existing delegation logic ...
+
+        // Set lock expiry for this delegation
+        VoteLockExpiry::<T>::insert(
+            (voter.clone(), delegation.candidate.clone()),
+            lock_until
+        );
     }
+
+    // ... rest of existing logic ...
+    Ok(())
+}
+```
+
+### 3.4 Modify `try_remove_votes_from_candidate()`
+
+Check lock before allowing withdrawal:
+
+```rust
+pub fn try_remove_votes_from_candidate(
+    origin: OriginFor<T>,
+    candidate: T::AccountId,
+    votes: u64,
+) -> DispatchResult {
+    let voter = ensure_signed(origin)?;
+
+    // Check if votes are still locked
+    Self::ensure_votes_unlocked(&voter, &candidate)?;
 
     // ... existing logic ...
-    sorted_candidates
 }
 ```
 
-### 3.3 RankingProvider Implementation Change
+### 3.5 Modify `redistribute_votes()`
 
-Modify `get_ranked_nodes()` to return the snapshot:
+Check lock before allowing redistribution:
 
 ```rust
-impl<T: Config> RankingProvider<T::AccountId> for Pallet<T> {
-    fn get_ranked_nodes() -> Option<Vec<T::AccountId>> {
-        let snapshot = SessionRankedNodes::<T>::get();
-        if snapshot.is_empty() {
-            // Fallback for first session after upgrade
-            Self::get_sorted_candidates()
-        } else {
-            Some(snapshot)
-        }
-    }
+pub fn redistribute_votes(
+    origin: OriginFor<T>,
+    from: T::AccountId,
+    to: T::AccountId,
+) -> DispatchResult {
+    let voter = ensure_signed(origin)?;
 
-    // ... other methods unchanged ...
+    // Check if votes are still locked on source candidate
+    Self::ensure_votes_unlocked(&voter, &from)?;
+
+    // ... existing logic ...
+
+    // Set new lock on destination candidate
+    let current_block = <frame_system::Pallet<T>>::block_number();
+    let lock_until = current_block + T::VoteLockPeriod::get();
+    VoteLockExpiry::<T>::insert((voter.clone(), to.clone()), lock_until);
+
+    Ok(())
 }
 ```
 
-### 3.4 Preserve Live Computation for Rewards
+### 3.6 Helper Function
 
-The existing `get_sorted_candidates()` and `get_sorted_candidates_with_votes()` functions remain unchanged and continue to compute live rankings. These are used for:
+```rust
+impl<T: Config> Pallet<T> {
+    /// Ensures votes from voter to candidate are not locked
+    fn ensure_votes_unlocked(
+        voter: &T::AccountId,
+        candidate: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        if let Some(lock_expiry) = VoteLockExpiry::<T>::get((voter.clone(), candidate.clone())) {
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            if current_block < lock_expiry {
+                return Err(Error::<T>::VotesStillLocked);
+            }
+        }
+        Ok(())
+    }
 
-- Validator selection at session end
-- Reward distribution (requires current vote counts)
+    /// Returns remaining lock time in blocks (for UI/queries)
+    pub fn get_vote_lock_remaining(
+        voter: &T::AccountId,
+        candidate: &T::AccountId,
+    ) -> Option<BlockNumberFor<T>> {
+        if let Some(lock_expiry) = VoteLockExpiry::<T>::get((voter.clone(), candidate.clone())) {
+            let current_block = <frame_system::Pallet<T>>::block_number();
+            if current_block < lock_expiry {
+                return Some(lock_expiry - current_block);
+            }
+        }
+        None
+    }
+}
+```
+
+### 3.7 New Error Type
+
+```rust
+#[pallet::error]
+pub enum Error<T> {
+    // ... existing errors ...
+
+    /// Votes are still locked and cannot be withdrawn or redistributed
+    VotesStillLocked,
+}
+```
 
 ---
 
@@ -121,63 +202,43 @@ The existing `get_sorted_candidates()` and `get_sorted_candidates_with_votes()` 
 ### 4.1 Before (Current Behavior)
 
 ```
-User moves votes -> NodeAccumulativeVotes updates -> get_ranked_nodes() returns new ranking immediately
+User delegates votes -> Can withdraw/redistribute immediately
 ```
-
-- Rankings are volatile within a session
-- Vote manipulation can change council eligibility mid-referendum
 
 ### 4.2 After (Proposed Behavior)
 
 ```
-User moves votes -> NodeAccumulativeVotes updates -> get_ranked_nodes() returns session snapshot (unchanged)
-Session boundary -> Snapshot updates -> get_ranked_nodes() returns new ranking
+User delegates votes -> Votes locked for 14 days -> Can withdraw/redistribute after lock expires
 ```
-
-- Rankings are stable within a session
-- Council eligibility is fixed for the duration of a referendum
-- Vote changes take effect at next session boundary
 
 ---
 
 ## 5. Downstream Consequences
 
-### 5.1 Affected: `d9-council-lock`
+### 5.1 Affected: User Experience
 
-| Function | Impact |
-|----------|--------|
-| `check_is_council_member()` | Now uses stable snapshot; council membership fixed per session |
-| `check_nominator()` | Now uses stable snapshot; nominator eligibility fixed per session |
-| `vote_in_referendum()` | Voters determined by session-start ranking, not real-time |
+| Action | Before | After |
+|--------|--------|-------|
+| Delegate votes | Immediate, no restrictions | Votes locked for 14 days |
+| Withdraw votes | Anytime | Only after lock period expires |
+| Redistribute votes | Anytime | Only after lock expires; new lock starts |
+| Add more votes to same node | Anytime | Allowed, extends lock period |
 
-**Security improvement:** Eliminates vote recycling attack.
+### 5.2 Affected: `d9-council-lock`
 
-### 5.2 Affected: User Experience
-
-| Scenario | Before | After |
-|----------|--------|-------|
-| User moves votes to push node into top 27 | Immediate council eligibility | Eligibility at next session |
-| User withdraws votes from top 27 node | Immediate loss of council status | Status retained until session end |
-| Node drops out of top 27 mid-session | Cannot vote in new referendums | Can still vote until session end |
-
-**User expectation change:** Vote redistribution effects are delayed by up to one session.
+**No code changes needed.** The vulnerability is prevented at the source - votes cannot be moved to manipulate rankings during a referendum.
 
 ### 5.3 NOT Affected: Contracts
 
-| Contract | Reason |
-|----------|--------|
-| `node-reward` | Receives pre-sorted data via `update_rewards()` from pallet |
-| `d9-burn-mining` | Only uses `get_ancestors()`, no ranking queries |
-| `main-pool` | Only uses `get_ancestors()`, no ranking queries |
-| `merchant-mining` | Only uses `get_ancestors()`, no ranking queries |
+All contracts continue to work unchanged. They don't interact with vote locking.
 
 ### 5.4 NOT Affected: Reward Distribution
 
-Reward distribution at session end continues to use live `get_sorted_candidates_with_votes()`, ensuring rewards reflect actual vote counts at distribution time.
+Rewards are based on vote counts at session end. Lock status doesn't affect reward calculation.
 
 ### 5.5 NOT Affected: Validator Selection
 
-Validator selection already occurs at session boundaries and uses the live sorted list, which is then stored as the new snapshot.
+Validator selection uses current vote counts. Lock status doesn't affect selection.
 
 ---
 
@@ -187,97 +248,146 @@ Validator selection already occurs at session boundaries and uses the live sorte
 
 **Not required.** This is an additive change:
 
-- New `SessionRankedNodes` storage initializes to empty `Vec`
-- Existing storage items unchanged
-- Fallback logic handles empty snapshot gracefully
+- New `VoteLockExpiry` storage starts empty
+- Existing delegations have no lock (grandfathered in)
+- New delegations after upgrade will have locks
 
-### 6.2 Deployment Sequence
+### 6.2 Handling Existing Delegations
+
+Existing vote delegations made before the upgrade will NOT have a lock period. Only new delegations (or redistributions) after the upgrade will be subject to the lock.
+
+**Alternative:** If all existing delegations should be locked, a one-time migration can set lock expiry for all existing `UserToNodeVotesTotals` entries.
+
+### 6.3 Deployment Sequence
 
 1. Deploy runtime upgrade with new pallet code
-2. On first `new_session()` after upgrade, snapshot is populated
-3. Until first session boundary, fallback returns live computation
-4. After first session boundary, snapshot is active
-
-### 6.3 Storage Version
-
-Optional bump to `STORAGE_VERSION` for documentation purposes:
-
-```rust
-const STORAGE_VERSION: frame_support::traits::StorageVersion =
-    frame_support::traits::StorageVersion::new(2);  // Was 1
-```
+2. New delegations immediately subject to 14-day lock
+3. Existing delegations remain unlocked (or migrated if desired)
 
 ---
 
-## 7. Testing Requirements
+## 7. Configuration
 
-### 7.1 Unit Tests
+### 7.1 Default Lock Period
 
-1. **Snapshot population:** Verify `SessionRankedNodes` updates at session boundary
-2. **Snapshot stability:** Verify `get_ranked_nodes()` returns same result throughout session
-3. **Vote changes ignored:** Verify mid-session vote redistribution doesn't affect `get_ranked_nodes()`
-4. **Fallback behavior:** Verify empty snapshot falls back to live computation
+```rust
+// In runtime configuration
+parameter_types! {
+    // 14 days assuming 6-second blocks
+    // 14 * 24 * 60 * 60 / 6 = 201,600 blocks
+    pub const VoteLockPeriod: BlockNumber = 201_600;
+}
 
-### 7.2 Integration Tests
+impl pallet_d9_node_voting::Config for Runtime {
+    // ...
+    type VoteLockPeriod = VoteLockPeriod;
+}
+```
 
-1. **Council voting:** Verify only session-start top 27 can vote on referendums
-2. **Attack prevention:** Verify vote recycling attack no longer works
-3. **Session transition:** Verify new rankings take effect after session change
+### 7.2 Governance Adjustability
 
-### 7.3 Scenario Tests
+The lock period can be changed via runtime upgrade. Consider adding a setter function for admin adjustment if needed.
+
+---
+
+## 8. Testing Requirements
+
+### 8.1 Unit Tests
+
+1. **Lock set on delegation:** Verify `VoteLockExpiry` is set when delegating
+2. **Withdrawal blocked:** Verify `try_remove_votes_from_candidate` fails during lock
+3. **Redistribution blocked:** Verify `redistribute_votes` fails during lock
+4. **Unlock after period:** Verify operations succeed after lock expires
+5. **Lock extension:** Verify adding votes extends the lock period
+
+### 8.2 Integration Tests
+
+1. **Attack prevention:** Verify vote recycling attack fails due to lock
+2. **Normal operations:** Verify users can delegate, wait, then withdraw normally
+
+### 8.3 Scenario Tests
 
 ```
 Scenario: Vote recycling attack prevention
-  Given Node A is rank 5 at session start
-  And Node B is rank 30 at session start
+  Given User X has 1000 votes delegated to Node A
+  And Node A is rank 5
   And a referendum is active
-  When Node A votes on the referendum
-  And supporter moves votes from Node A to Node B
-  Then Node B should NOT be able to vote (still rank 30 in snapshot)
-  And Node A should still be able to vote (still rank 5 in snapshot)
+  When User X tries to redistribute votes to Node B
+  Then the transaction should fail with VotesStillLocked error
+  And Node A should retain all votes
 ```
 
 ---
 
-## 8. Risks & Mitigations
+## 9. Risks & Mitigations
 
-### 8.1 Risk: Stale Rankings
+### 9.1 Risk: User Frustration
 
-**Concern:** A node that loses significant support mid-session retains council privileges.
+**Concern:** Users may be frustrated they can't move votes freely.
 
-**Mitigation:** Session duration is short enough that this is acceptable. The alternative (real-time rankings) enables vote manipulation attacks which is worse.
+**Mitigation:**
+- Clear UI messaging about lock period before delegation
+- Show countdown to unlock in wallet/UI
+- 14 days is reasonable for governance commitment
 
-### 8.2 Risk: First Session After Upgrade
+### 9.2 Risk: Emergency Situations
 
-**Concern:** Empty snapshot before first session boundary.
+**Concern:** User needs to move votes urgently (e.g., node becomes malicious).
 
-**Mitigation:** Fallback to live computation ensures continuity. After one session, snapshot is active.
+**Mitigation:**
+- Consider admin override for emergency unlocks
+- 14-day period is not excessively long
+- Users should do due diligence before delegating
 
-### 8.3 Risk: Inconsistent State
+### 9.3 Risk: Existing Delegations Unprotected
 
-**Concern:** Live vote counts and snapshot rankings diverge.
+**Concern:** Existing delegations before upgrade have no lock.
 
-**Mitigation:** This is intentional and by design. Live counts are used for rewards; snapshot is used for governance eligibility. Both serve their purpose correctly.
+**Mitigation:**
+- Optional migration to lock existing delegations
+- Or accept that old delegations are grandfathered
+- New delegations will be locked, eventually all votes will be covered
 
 ---
 
-## 9. Implementation Checklist
+## 10. Implementation Checklist
 
-- [ ] Add `SessionRankedNodes` storage item to `d9-node-voting`
-- [ ] Update `new_session()` to populate snapshot
-- [ ] Modify `RankingProvider::get_ranked_nodes()` to return snapshot with fallback
-- [ ] Add unit tests for snapshot behavior
-- [ ] Add integration tests for attack prevention
-- [ ] Update storage version (optional)
-- [ ] Document behavioral changes for node operators
+- [ ] Add `VoteLockPeriod` config constant to `d9-node-voting`
+- [ ] Add `VoteLockExpiry` storage map
+- [ ] Add `VotesStillLocked` error type
+- [ ] Add `ensure_votes_unlocked()` helper function
+- [ ] Add `get_vote_lock_remaining()` query function
+- [ ] Modify `delegate_votes()` to set lock
+- [ ] Modify `try_remove_votes_from_candidate()` to check lock
+- [ ] Modify `redistribute_votes()` to check lock and set new lock
+- [ ] Add unit tests
+- [ ] Add integration tests
+- [ ] Configure lock period in runtime (201,600 blocks = 14 days)
+- [ ] Update UI to show lock status and countdown
 - [ ] Deploy to testnet for validation
 - [ ] Deploy to mainnet
 
 ---
 
-## 10. References
+## 11. API Changes
+
+### 11.1 New Query
+
+```rust
+/// Get remaining lock time for a voter's delegation to a candidate
+/// Returns None if not locked, Some(blocks) if locked
+fn get_vote_lock_remaining(voter: AccountId, candidate: AccountId) -> Option<BlockNumber>;
+```
+
+### 11.2 New Error
+
+Extrinsics `try_remove_votes_from_candidate` and `redistribute_votes` may now return:
+- `VotesStillLocked` - Votes are locked until block X
+
+---
+
+## 12. References
 
 - `d9-node-voting/src/lib.rs` - Node voting pallet
-- `d9-council-lock/src/lib.rs` - Council lock pallet
-- `d9-chain-extension/lib.rs` - Chain extension for contracts
-- Commit `f28d31b` - Previous fix for validator reward distribution sorting
+- `d9-council-lock/src/lib.rs` - Council lock pallet (benefits from this fix)
+- Issue #16 - Vote recycling vulnerability
